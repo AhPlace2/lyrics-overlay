@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src data:">
+<title>Lyrics Overlay</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Instrument+Serif:ital@0;1&family=Pixelify+Sans:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="overlay.css">
+</head>
+<body class="font-clean">
+  <div id="card" class="card hidden">
+    <div class="now">
+      <div class="cover"><img id="cover" alt=""></div>
+      <div class="meta">
+        <div id="title" class="title"></div>
+        <div id="artist" class="artist"></div>
+        <div class="progress">
+          <span id="elapsed">0:00</span>
+          <div class="bar"><i id="fill"></i></div>
+          <span id="length">0:00</span>
+        </div>
+      </div>
+      <div class="side">
+        <button id="gear" class="gear" type="button" title="Settings" aria-label="Settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.4-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.7a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.7h4l.4-2.7a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.4zM13 15.2a3.2 3.2 0 1 1 0-6.4 3.2 3.2 0 0 1 0 6.4z" transform="translate(-1 0)"/></svg>
+        </button>
+        <div id="eq" class="eq"><i></i><i></i><i></i></div>
+      </div>
+    </div>
+    <div id="panel" class="panel"></div>
+    <div class="edit-hint">Drag the card where you want it <button id="done" type="button">Done</button></div>
+  </div>
+  <div id="big" class="big fx-depth"></div>
+  <div id="toast" class="toast"></div>
+  <script src="overlay.js"></script>
+</body>
+</html>

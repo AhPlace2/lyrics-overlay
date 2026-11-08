@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com">
+<title>Lyrics Overlay settings</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Instrument+Serif:ital@0;1&family=Pixelify+Sans:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <main id="root" class="root">
+    <header class="head">
+      <span class="name">Settings</span>
+      <button id="close" class="icon" type="button" title="Close (Esc)">✕</button>
+    </header>
+
+    <section>
+      <h2>Show</h2>
+      <label class="row"><span>Lyrics <kbd>Ctrl+Alt+L</kbd></span><input type="checkbox" data-toggle="enabled"></label>
+      <label class="row"><span>Now playing card</span><input type="checkbox" data-toggle="showCard"></label>
+      <label class="row"><span>Big floating lyrics</span><input type="checkbox" data-toggle="showBig"></label>
+    </section>
+
+    <section>
+      <h2>Big lyrics look</h2>
+      <div class="field"><span>Effect</span><div class="chips" data-choose="effect"></div></div>
+      <div class="field"><span>Font</span><div class="chips" data-choose="font"></div></div>
+      <div class="field"><span>Colour</span><div class="swatches" data-choose="accent"></div></div>
+      <div class="field"><span>Position</span><div class="chips" data-choose="bigPosition"></div></div>
+    </section>
+
+    <section id="song">
+      <h2>This song</h2>
+      <div id="song-name" class="song-name"></div>
+      <div class="field">
+        <span>Timing <em id="lead"></em></span>
+        <div class="buttons">
+          <button type="button" data-act="earlier" title="Ctrl+Alt+Up">Earlier</button>
+          <button type="button" data-act="later" title="Ctrl+Alt+Down">Later</button>
+          <button type="button" data-act="sync" title="Ctrl+Alt+S">Sync to now</button>
+          <button type="button" data-act="reset" class="quiet">Reset</button>
+        </div>
+        <p class="hint">“Sync to now”: press it the moment the line on screen is sung.</p>
+      </div>
+      <div class="field">
+        <span>Lyrics <em id="source"></em></span>
+        <div class="buttons">
+          <button type="button" data-act="prev" title="Ctrl+Alt+P">‹ Previous</button>
+          <button type="button" data-act="next" title="Ctrl+Alt+O">Other lyrics ›</button>
+          <button type="button" data-act="first" class="quiet">Back to first</button>
+          <button type="button" data-act="search" class="quiet">Search again</button>
+        </div>
+      </div>
+    </section>
+    <section id="nothing" class="nothing">Play a song to adjust its timing and lyrics.</section>
+
+    <footer class="foot">
+      <button type="button" data-act="move" title="Ctrl+Alt+M">Move card</button>
+      <button type="button" data-act="quit" class="quiet">Quit</button>
+    </footer>
+  </main>
+  <script src="settings.js"></script>
+</body>
+</html>
