@@ -1,13 +1,55 @@
 {
   "name": "lyrics-overlay",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Synced lyrics floating on top of your desktop for whatever is playing.",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "dist": "electron-builder --win nsis"
   },
   "devDependencies": {
-    "electron": "45.2.3"
+    "electron": "45.2.3",
+    "electron-builder": "^26.18.0"
+  },
+  "author": "AhPlace2",
+  "build": {
+    "appId": "com.ahplace2.lyricsoverlay",
+    "productName": "Lyrics Overlay",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "*.js",
+      "*.html",
+      "*.css",
+      "nowplaying.ps1",
+      "package.json",
+      "!build/**"
+    ],
+    "asarUnpack": [
+      "nowplaying.ps1"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Lyrics Overlay",
+      "runAfterFinish": true,
+      "artifactName": "Lyrics-Overlay-Setup-${version}.${ext}"
+    },
+    "electronLanguages": [
+      "en-US",
+      "en-GB",
+      "de"
+    ],
+    "compression": "maximum"
   }
 }

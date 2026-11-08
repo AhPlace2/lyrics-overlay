@@ -3,7 +3,7 @@
 Synced lyrics on top of your Windows desktop for whatever is playing: Spotify, YouTube in Chrome, Firefox or Brave, and other players that show up in Windows' media controls.
 
 - A now playing card with the cover, title and progress, plus the current lyric lines
-- Big floating lyrics that type in word by word, styled by mixing a look (Depth, Glow, Outline, Plain), a colour or rainbow, and a motion (Wave, Bounce, Pulse)
+- Big floating lyrics that type in word by word, styled by mixing a look (Depth, Glow, Outline, Plain), a colour (preset, rainbow or any colour from the picker), and a motion (Wave, Bounce, Pulse)
 - Lyrics from [LRCLIB](https://lrclib.net), with other versions from LRCLIB and NetEase when the timing is off
 - Per-song timing fixes and lyric choices, saved for next time
 - Lyrics found once are saved on disk, so a song loads instantly next time, even offline
@@ -20,6 +20,17 @@ Or from a terminal:
 npm install
 npm start
 ```
+
+## Build the installer
+
+```
+npm install
+npm run dist
+```
+
+This makes `dist\Lyrics-Overlay-Setup-<version>.exe`, a single installer to send to other people. It installs for the current user, adds Start menu and desktop shortcuts, and can be removed from Windows' installed apps. The installer isn't code-signed, so Windows shows "Windows protected your PC"; click **More info → Run anyway**.
+
+Raise `version` in `package.json` before building a new release. The icon is `build/icon.png`, drawn by `node build/make-icon.js`.
 
 ## Use it
 

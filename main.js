@@ -47,6 +47,9 @@ const lyricsCache = new Map(), versionsCache = new Map();
 let searchingVersions = false;
 const failedHotkeys = [];
 
+// Same settings folder whether run from the project or installed (the installed app's name has a space).
+app.setPath('userData', path.join(app.getPath('appData'), 'lyrics-overlay'));
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -140,8 +143,11 @@ function setEditing(on) {
 }
 
 /* ---------- Now playing ---------- */
+// In the installed app the code sits inside app.asar, which PowerShell can't read, so the script is kept beside it.
+const helperScript = path.join(__dirname.replace(/app\.asar$/, 'app.asar.unpacked'), 'nowplaying.ps1');
+
 function startHelper() {
-  helper = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, 'nowplaying.ps1'), '-ParentPid', String(process.pid)], { windowsHide: true });
+  helper = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', helperScript, '-ParentPid', String(process.pid)], { windowsHide: true });
   readline.createInterface({ input: helper.stdout }).on('line', onHelperLine);
   helper.stderr.on('data', (d) => console.error('[now playing]', String(d).trim()));
   helper.on('exit', (code) => {
@@ -390,7 +396,9 @@ function onPanelAction(name, value) {
       else if (['showCard', 'showCardLyrics', 'seeThrough', 'showBig'].includes(value)) update({ [value]: !settings[value] });
       break;
     case 'choose':
-      if (!choices[value?.key]?.some(([v]) => v === value.value)) break;
+      // Colours can also be any colour from the picker, as #rrggbb.
+      if (value?.key === 'accent' && /^#[0-9a-f]{6}$/i.test(value.value)) value = { key: 'accent', value: value.value.toLowerCase() };
+      else if (!choices[value?.key]?.some(([v]) => v === value.value)) break;
       // Picking a colour swatch also leaves rainbow mode, so the pick shows straight away.
       update(value.key === 'accent' ? { accent: value.value, colourMode: 'accent' } : { [value.key]: value.value });
       break;

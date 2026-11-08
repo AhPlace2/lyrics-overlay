@@ -68,6 +68,35 @@ button:disabled { opacity: .35; cursor: default; pointer-events: none; }
 .swatches button:hover { transform: scale(1.12); }
 .swatches .rainbow { background: conic-gradient(#ff4d5e, #ffb648, #f5f25c, #5cf2b0, #6cc8ff, #b47cff, #ff6fae, #ff4d5e); }
 .swatches button.on { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px #fff; }
+/* "Your own colour" swatch: a plus until a colour of your own is picked, then that colour. */
+.swatches .custom { position: relative; background: rgba(255, 255, 255, .1); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .25); }
+.swatches .custom::after { content: "+"; position: absolute; inset: 0; display: grid; place-items: center; font: 600 15px/1 "Inter", sans-serif; color: var(--text); }
+.swatches .custom.filled::after { content: ""; }
+.swatches .custom.open:not(.on) { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--dim); }
+
+/* Colour picker: saturation/brightness square, hue bar, colour code. */
+.picker { margin-top: 10px; display: grid; gap: 8px; }
+.sv {
+  position: relative; height: 110px; border-radius: 8px; cursor: crosshair; touch-action: none;
+  background: linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, hsl(var(--h, 0) 100% 50%));
+}
+.hue {
+  position: relative; height: 12px; border-radius: 6px; cursor: pointer; touch-action: none;
+  background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+}
+.sv i, .hue i {
+  position: absolute; width: 14px; height: 14px; border-radius: 50%; pointer-events: none;
+  transform: translate(-50%, -50%); box-shadow: 0 0 0 2px #fff, 0 0 0 3px rgba(0, 0, 0, .35);
+}
+.hue i { top: 50%; }
+.hex-row { display: flex; align-items: center; gap: 8px; }
+.preview { width: 22px; height: 22px; border-radius: 6px; flex: none; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .2); }
+#hex {
+  width: 90px; font: 600 12px "Inter", sans-serif; color: var(--text); text-transform: uppercase;
+  background: rgba(255, 255, 255, .08); border: 0; border-radius: 6px; padding: 5px 8px; outline: none;
+}
+#hex:focus { box-shadow: inset 0 0 0 1px var(--dim); }
+#hex.bad { box-shadow: inset 0 0 0 1px #ff4d5e; }
 
 .song-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; }
 .hint { margin: 5px 0 0; font-size: 11px; color: var(--dim); }

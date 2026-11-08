@@ -28,7 +28,15 @@
       <div class="field"><span>Look</span><div class="chips" data-choose="look"></div></div>
       <div class="field"><span>Motion</span><div class="chips" data-choose="motion"></div></div>
       <div class="field"><span>Font</span><div class="chips" data-choose="font"></div></div>
-      <div class="field"><span>Colour</span><div class="swatches" data-choose="accent"></div></div>
+      <div class="field">
+        <span>Colour</span>
+        <div class="swatches" data-choose="accent"></div>
+        <div id="picker" class="picker hidden">
+          <div id="sv" class="sv"><i id="sv-knob"></i></div>
+          <div id="hue" class="hue"><i id="hue-knob"></i></div>
+          <label class="hex-row"><span id="preview" class="preview"></span><input id="hex" maxlength="7" spellcheck="false" aria-label="Colour code"></label>
+        </div>
+      </div>
       <div class="field"><span>Position</span><div class="chips" data-choose="bigPosition"></div></div>
     </section>
 
