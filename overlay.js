@@ -17,7 +17,9 @@ const fmt = (s) => {
 };
 
 /* ---------- Playback clock ---------- */
+let seekHold = null;
 function songTime() {
+  if (seeking && track?.key === seeking.key) return seeking.to;
   const t = playing ? anchorPos + (Date.now() - anchorMs) / 1000 : anchorPos;
   const length = track ? track.end - track.start : 0;
   return length > 0 ? Math.min(t, length) : t;
@@ -36,7 +38,11 @@ function onState(s) {
   const nowPlaying = s.status === 'Playing';
   const reported = Math.max(0, s.position - s.start + (nowPlaying && stampOK ? (now - s.updated) / 1000 : 0));
   const drift = Math.abs(reported - songTime());
-  if (isNew || nowPlaying !== playing || drift > .35) { anchorPos = reported; anchorMs = now; }
+  // Just after a jump, the player may still report the old time; wait until it catches up (or gives up).
+  const held = seekHold && seekHold.key === s.key && now < seekHold.until && Math.abs(reported - seekHold.to) > 2;
+  if (seekHold && !held) seekHold = null;
+  if (!held && !seeking && (isNew || nowPlaying !== playing || drift > .35)) { anchorPos = reported; anchorMs = now; }
+  if (held && nowPlaying !== playing) { anchorPos = songTime(); anchorMs = now; }
   if (!nowPlaying && playing) idleSince = now;
   playing = nowPlaying;
   if (isNew) {
@@ -49,6 +55,7 @@ function onState(s) {
   $('#title').textContent = s.title || 'Unknown title';
   $('#artist').textContent = s.artist || '';
   $('#eq').classList.toggle('paused', !playing);
+  showControls(s);
 }
 
 /* ---------- Lyrics ---------- */
@@ -140,43 +147,100 @@ function renderPanel(lines, idx, t) {
   }
 }
 
-/* ---------- Settings gear ----------
-   The overlay lets clicks through to the desktop. While the pointer is on the gear, it asks to catch
-   them instead, so the gear can be clicked. */
-const gear = $('#gear');
-let overGear = false;
-function setOverGear(on) {
-  if (on === overGear) return;
-  overGear = on;
+/* ---------- Clickable parts: settings gear, playback controls, progress bar ----------
+   The overlay lets clicks through to the desktop. While the pointer is on something clickable (marked
+   .hit), it asks to catch them instead. A drag on the progress bar keeps catching them until it ends. */
+const gear = $('#gear'), bar = $('#bar'), playBtn = $('#play');
+let overUi = false, seeking = null;
+function setOverUi(on) {
+  if (seeking) on = true;
+  if (on === overUi) return;
+  overUi = on;
   api.send('ui-hover', on);
 }
-gear.addEventListener('mouseenter', () => setOverGear(true));
-gear.addEventListener('mouseleave', () => setOverGear(false));
+const clickable = (el) => !!el?.closest?.('.hit:not(:disabled):not(.off)') && !card.classList.contains('hidden');
 gear.addEventListener('click', () => api.send('open-settings'));
 
 /* The card turns see-through while the mouse is over it, so you can see what you are about to click.
-   Clicks go through it anyway; only the gear catches them, and it stays visible. */
+   Clicks go through it anyway, except on the gear and the controls, which stay solid. */
 function setSeeThrough(on) { card.classList.toggle('see-through', on); }
+// Also tracks whether the mouse is where the card is, so a card hidden after a pause comes back to be played again.
+let mouseOnCard = false;
 addEventListener('mousemove', (e) => {
-  if (!settings.seeThrough || editing || card.classList.contains('hidden')) return setSeeThrough(false);
+  setOverUi(!editing && clickable(e.target));
   const r = card.getBoundingClientRect();
-  setSeeThrough(e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom);
+  mouseOnCard = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+  if (!settings.seeThrough || editing || card.classList.contains('hidden')) return setSeeThrough(false);
+  setSeeThrough(mouseOnCard);
 });
-document.addEventListener('mouseleave', () => setSeeThrough(false));
+document.addEventListener('mouseleave', () => { mouseOnCard = false; setSeeThrough(false); setOverUi(false); });
+
+/* ---------- Playback controls ---------- */
+const sendControl = (cmd, extra = {}) => track && api.send('control', { cmd, key: track.key, ...extra });
+$('#prev').addEventListener('click', () => sendControl('prev'));
+$('#next').addEventListener('click', () => sendControl('next'));
+playBtn.addEventListener('click', () => {
+  sendControl('toggle');
+  playBtn.classList.toggle('paused'); // show the change now; the player's answer follows within a moment
+  setTimeout(() => track && showControls(track), 1500); // and if the player ignored it, show the truth again
+});
+
+function showControls(s) {
+  const c = s.controls || {};
+  $('#prev').disabled = !c.prev;
+  $('#next').disabled = !c.next;
+  playBtn.disabled = !c.toggle;
+  playBtn.classList.toggle('paused', s.status !== 'Playing');
+  playBtn.title = s.status === 'Playing' ? 'Pause' : 'Play';
+  const length = s.end - s.start;
+  bar.classList.toggle('off', !c.seek || !(length > 0));
+  bar.title = bar.classList.contains('off') ? "This player doesn't allow jumping" : 'Drag to jump to a time';
+}
+
+// Jumping: drag (or click) on the bar. While dragging, the card and lyrics preview that time.
+const barTime = (e) => {
+  const r = bar.getBoundingClientRect(), length = track.end - track.start;
+  return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) * length;
+};
+bar.addEventListener('pointerdown', (e) => {
+  if (!track || bar.classList.contains('off') || editing) return;
+  seeking = { key: track.key, to: barTime(e) };
+  bar.setPointerCapture(e.pointerId);
+  bar.classList.add('dragging');
+  setOverUi(true);
+});
+bar.addEventListener('pointermove', (e) => { if (seeking && track?.key === seeking.key) seeking.to = barTime(e); });
+const endSeek = (e, cancelled) => {
+  if (!seeking) return;
+  const { key, to } = seeking;
+  seeking = null;
+  bar.classList.remove('dragging');
+  setOverUi(clickable(document.elementFromPoint(e.clientX, e.clientY)));
+  if (cancelled || track?.key !== key) return;
+  sendControl('seek', { to });
+  // Move there now; the player's own report can lag behind for a moment, so don't let it pull us back.
+  anchorPos = to; anchorMs = Date.now();
+  seekHold = { key, to, until: Date.now() + 2500 };
+};
+bar.addEventListener('pointerup', (e) => endSeek(e, false));
+bar.addEventListener('pointercancel', (e) => endSeek(e, true));
+bar.addEventListener('lostpointercapture', (e) => endSeek(e, true));
 
 /* ---------- Frame loop ---------- */
 function frame() {
   const now = Date.now();
   const recent = playing || now - idleSince < 20000;
-  const showCard = editing || (settings.enabled && settings.showCard && track && recent);
+  const showCard = editing || (settings.enabled && settings.showCard && track && (recent || mouseOnCard || seeking));
   card.classList.toggle('hidden', !showCard);
-  if (!showCard) setOverGear(false);
+  if (!showCard && !seeking) setOverUi(false);
 
   if (track) {
     const t = songTime(), length = track.end - track.start;
     $('#elapsed').textContent = fmt(t);
     $('#length').textContent = length > 0 ? fmt(length) : '–:––';
-    $('#fill').style.width = length > 0 ? `${Math.min(100, (t / length) * 100)}%` : '0%';
+    const pct = length > 0 ? `${Math.min(100, (t / length) * 100)}%` : '0%';
+    $('#fill').style.width = pct;
+    $('#knob').style.left = pct;
 
     const ready = lyrics.key === track.key && lyrics.status === 'found';
     const lines = ready ? lyrics.lines : [];

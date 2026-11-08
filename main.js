@@ -159,12 +159,33 @@ function startHelper() {
   });
 }
 
+/* Playback controls from the card go to the helper, which passes them to the player. */
+const CONTROL_REFUSED = {
+  toggle: "The player didn't pause or play",
+  next: 'The player has no next song here',
+  prev: 'The player has no previous song here',
+  seek: "This player doesn't allow jumping to a time",
+};
+
+function control(msg) {
+  if (!CONTROL_REFUSED[msg?.cmd] || typeof msg.key !== 'string') return;
+  if (msg.cmd === 'seek' && !(Number.isFinite(msg.to) && msg.to >= 0)) return;
+  if (!helper?.stdin?.writable) return send('toast', "Can't reach the player right now");
+  const out = { cmd: msg.cmd, key: msg.key };
+  if (msg.cmd === 'seek') out.to = Math.round(msg.to * 1000) / 1000;
+  helper.stdin.write(JSON.stringify(out) + '\n');
+}
+
 function onHelperLine(line) {
   let msg;
   try { msg = JSON.parse(line); } catch { return; }
   if (msg.type === 'cover') {
     lastCover = msg;
     send('cover', msg);
+    return;
+  }
+  if (msg.type === 'control') {
+    if (!msg.ok) send('toast', CONTROL_REFUSED[msg.cmd] || "The player didn't respond");
     return;
   }
   if (msg.type !== 'state') return;
@@ -463,6 +484,7 @@ function start() {
   });
   ipcMain.on('edit-done', () => setEditing(false));
   ipcMain.on('open-settings', togglePanel);
+  ipcMain.on('control', (e, msg) => { if (win && e.sender === win.webContents) control(msg); });
   ipcMain.on('ui-hover', (_e, on) => { if (!editing) win.setIgnoreMouseEvents(!on, { forward: true }); });
   ipcMain.on('panel-action', (e, msg) => { if (panel && e.sender === panel.webContents) onPanelAction(msg?.name, msg?.value); });
   ipcMain.on('set-offset', (_e, msg) => {

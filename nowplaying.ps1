@@ -47,25 +47,72 @@ $lastLine = $null
 $coverKey = $null
 $coverTick = 0
 $sentCover = $null
+$current = $null      # the session last reported, which commands act on
+$currentKey = $null
+$currentApp = $null
+
+# Commands from the overlay arrive on stdin, one JSON object per line:
+# {"cmd":"toggle"|"next"|"prev"|"seek","key":"<song key>","to":<seconds into the song, for seek>}
+# [Console]::In would block here (its ReadLineAsync isn't really async), so read the raw input stream.
+$stdin = New-Object System.IO.StreamReader([Console]::OpenStandardInput(), [System.Text.Encoding]::UTF8)
+$pending = $stdin.ReadLineAsync()
+
+function Invoke-Control($line) {
+  $msg = $line | ConvertFrom-Json
+  $ok = $false
+  if ($current -and $msg.key -eq $currentKey) {
+    switch ($msg.cmd) {
+      'toggle' {
+        # Some players only offer play and pause separately, so ask for the one that is needed.
+        $playingNow = $current.GetPlaybackInfo().PlaybackStatus.ToString() -eq 'Playing'
+        $ok = if ($playingNow) { Await ($current.TryPauseAsync()) ([bool]) } else { Await ($current.TryPlayAsync()) ([bool]) }
+        if (-not $ok) { $ok = Await ($current.TryTogglePlayPauseAsync()) ([bool]) }
+      }
+      'next' { $ok = Await ($current.TrySkipNextAsync()) ([bool]) }
+      'prev' { $ok = Await ($current.TrySkipPreviousAsync()) ([bool]) }
+      'seek' {
+        $start = $current.GetTimelineProperties().StartTime.TotalSeconds
+        $ticks = [long](([double]$msg.to + $start) * 10000000)
+        $ok = Await ($current.TryChangePlaybackPositionAsync($ticks)) ([bool])
+      }
+    }
+  }
+  Emit ([ordered]@{ type = 'control'; cmd = $msg.cmd; ok = [bool]$ok })
+}
 
 $tick = 0
 while ($true) {
   $tick++
   if ($ParentPid -and ($tick % 8 -eq 0) -and -not (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue)) { exit 0 }
+  while ($pending -and $pending.IsCompleted) {
+    $line = $null
+    try { $line = $pending.Result } catch { }
+    if ($null -eq $line) { $pending = $null; break } # the overlay closed our input
+    $pending = $stdin.ReadLineAsync()
+    try { Invoke-Control $line } catch { [Console]::Error.WriteLine("Control failed: $($_.Exception.Message)") }
+  }
   try {
     $session = $null
-    foreach ($candidate in $manager.GetSessions()) {
+    $sessions = @($manager.GetSessions())
+    foreach ($candidate in $sessions) {
       if ($candidate.GetPlaybackInfo().PlaybackStatus.ToString() -eq 'Playing') { $session = $candidate; break }
+    }
+    # Nothing playing (say, just paused from the card): stay with the same player rather than jumping to another.
+    if (-not $session -and $currentApp) {
+      foreach ($candidate in $sessions) { if ($candidate.SourceAppUserModelId -eq $currentApp) { $session = $candidate; break } }
     }
     if (-not $session) { $session = $manager.GetCurrentSession() }
 
     if (-not $session) {
       $state = [ordered]@{ type = 'state'; active = $false }
+      $current = $null; $currentKey = $null
     } else {
       $props = Await ($session.TryGetMediaPropertiesAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties])
       $timeline = $session.GetTimelineProperties()
       $playback = $session.GetPlaybackInfo()
       $key = "$($session.SourceAppUserModelId)|$($props.Artist)|$($props.Title)"
+      $current = $session; $currentKey = $key; $currentApp = $session.SourceAppUserModelId
+      $c = $playback.Controls
       $state = [ordered]@{
         type     = 'state'
         active   = $true
@@ -79,6 +126,13 @@ while ($true) {
         start    = $timeline.StartTime.TotalSeconds
         end      = $timeline.EndTime.TotalSeconds
         updated  = $timeline.LastUpdatedTime.ToUnixTimeMilliseconds()
+        # What this player lets others do; the card greys out the rest.
+        controls = [ordered]@{
+          toggle = [bool]($c.IsPlayPauseToggleEnabled -or $c.IsPlayEnabled -or $c.IsPauseEnabled)
+          next   = [bool]$c.IsNextEnabled
+          prev   = [bool]$c.IsPreviousEnabled
+          seek   = [bool]$c.IsPlaybackPositionEnabled
+        }
       }
       if ($key -ne $coverKey) { $coverKey = $key; $coverTick = 0; $sentCover = $null }
       $coverTick++
@@ -100,5 +154,6 @@ while ($true) {
   } catch {
     [Console]::Error.WriteLine($_.Exception.Message)
   }
-  Start-Sleep -Milliseconds 250
+  # Wait for the next check, but wake straight away when a command comes in.
+  if ($pending) { [void]$pending.Wait(250) } else { Start-Sleep -Milliseconds 250 }
 }

@@ -46,9 +46,37 @@ html, body {
 .artist { color: var(--dim); font-size: 13px; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 body.font-serif .title { font-size: 18px; }
 body.font-serif .artist { font-size: 15px; }
-.progress { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums; }
-.bar { flex: 1; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, .14); overflow: hidden; }
-.bar i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 2px; }
+.progress { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px; font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.progress > span { min-width: 30px; }
+.progress > span:last-child { text-align: right; }
+
+/* Progress bar: thin, but with a taller invisible strip to grab, and a knob while the mouse is on it. */
+.bar { position: relative; height: 14px; margin-top: 3px; display: flex; align-items: center; cursor: pointer; touch-action: none; }
+.bar .track { flex: 1; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, .14); overflow: hidden; transition: height .12s; }
+.bar .track i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 2px; }
+.bar b {
+  position: absolute; top: 50%; left: 0; width: 11px; height: 11px; border-radius: 50%; background: #fff;
+  transform: translate(-50%, -50%) scale(0); transition: transform .12s; box-shadow: 0 1px 4px rgba(0, 0, 0, .4); pointer-events: none;
+}
+.bar:hover .track, .bar.dragging .track { height: 6px; }
+.bar:hover b, .bar.dragging b { transform: translate(-50%, -50%) scale(1); }
+.bar.off { cursor: default; }
+.bar.off b { display: none; }
+.bar.off .track { height: 4px; }
+
+/* Previous / play-pause / next */
+.controls { display: flex; align-items: center; gap: 2px; }
+.ctl {
+  width: 24px; height: 22px; padding: 3px; border: 0; border-radius: 6px; cursor: pointer;
+  background: none; color: var(--text); opacity: .7; transition: opacity .15s, background .15s, transform .1s;
+}
+.ctl.main { width: 28px; height: 24px; opacity: .9; }
+.ctl svg { width: 100%; height: 100%; display: block; fill: currentColor; }
+.ctl:hover { opacity: 1; background: rgba(255, 255, 255, .1); }
+.ctl:active { transform: scale(.9); }
+.ctl:disabled { opacity: .22; pointer-events: none; }
+.ctl .i-play, .ctl.paused .i-pause { display: none; }
+.ctl.paused .i-play { display: block; }
 .side { align-self: stretch; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-end; }
 .gear {
   width: 24px; height: 24px; margin: -4px -4px 0 0; padding: 4px; border: 0; border-radius: 6px; cursor: pointer;
@@ -67,6 +95,11 @@ body.font-serif .artist { font-size: 15px; }
 .card.see-through .now, .card.see-through .panel { background-color: rgba(14, 14, 18, .06); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12); }
 .card.see-through .cover, .card.see-through .meta, .card.see-through .eq, .card.see-through .panel > * { opacity: .1; }
 .card.see-through .gear { opacity: 1; color: var(--text); background: rgba(14, 14, 18, .85); }
+/* The playback controls stay solid too, since they can be clicked. */
+.card.see-through .meta { opacity: 1; }
+.card.see-through .meta > .title, .card.see-through .meta > .artist, .card.see-through .progress > span { opacity: .1; transition: opacity .2s ease; }
+.card.see-through .controls { background: rgba(14, 14, 18, .85); border-radius: 7px; }
+.card.see-through .bar .track { background: rgba(14, 14, 18, .7); box-shadow: 0 0 0 1px rgba(255, 255, 255, .25); }
 .eq { display: flex; gap: 2px; align-items: flex-end; height: 12px; margin: 0 2px 2px 0; }
 .eq i { width: 3px; background: var(--accent); border-radius: 1px; animation: eq 1s ease-in-out infinite; }
 .eq i:nth-child(2) { animation-delay: -.35s; }
