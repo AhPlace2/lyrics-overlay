@@ -3,7 +3,7 @@ const api = window.overlay;
 const $ = (s) => document.querySelector(s);
 const card = $('#card'), panel = $('#panel'), big = $('#big');
 
-let settings = { enabled: true, showCard: true, showBig: true, effect: 'depth', font: 'clean', accent: '#ffb648', bigPosition: 'center', offsets: {}, card: { x: 24, y: 24 } };
+let settings = { enabled: true, showCard: true, showCardLyrics: true, seeThrough: true, showBig: true, look: 'depth', colourMode: 'accent', motion: 'none', font: 'clean', accent: '#ffb648', bigPosition: 'center', offsets: {}, card: { x: 24, y: 24 } };
 let track = null, lyrics = { key: null, status: 'idle', lines: [] };
 let anchorPos = 0, anchorMs = 0, playing = false, idleSince = Date.now();
 let shownIdx = null, shownKey = null, panelSig = '', editing = false, lastCover = null;
@@ -154,6 +154,16 @@ gear.addEventListener('mouseenter', () => setOverGear(true));
 gear.addEventListener('mouseleave', () => setOverGear(false));
 gear.addEventListener('click', () => api.send('open-settings'));
 
+/* The card turns see-through while the mouse is over it, so you can see what you are about to click.
+   Clicks go through it anyway; only the gear catches them, and it stays visible. */
+function setSeeThrough(on) { card.classList.toggle('see-through', on); }
+addEventListener('mousemove', (e) => {
+  if (!settings.seeThrough || editing || card.classList.contains('hidden')) return setSeeThrough(false);
+  const r = card.getBoundingClientRect();
+  setSeeThrough(e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom);
+});
+document.addEventListener('mouseleave', () => setSeeThrough(false));
+
 /* ---------- Frame loop ---------- */
 function frame() {
   const now = Date.now();
@@ -202,7 +212,8 @@ function applySettings(s) {
   document.documentElement.style.setProperty('--accent', s.accent);
   document.documentElement.style.setProperty('--big-top', s.bigPosition === 'bottom' ? '76%' : '44%');
   document.body.className = `font-${s.font}`;
-  big.className = `big fx-${s.effect}${big.classList.contains('fade') ? ' fade' : ''}`;
+  big.className = `big look-${s.look} colour-${s.colourMode} motion-${s.motion}${big.classList.contains('fade') ? ' fade' : ''}`;
+  card.classList.toggle('no-lyrics', s.showCardLyrics === false);
   placeCard(s.card.x, s.card.y);
 }
 
@@ -212,16 +223,61 @@ function placeCard(x, y) {
   card.style.top = `${Math.min(maxY, Math.max(0, y))}px`;
 }
 
+/* ---------- Moving the card: grid, guides and snapping ---------- */
+const GRID = 24, MARGIN = 24, SNAP = 12;
+const guideX = $('#guide-x'), guideY = $('#guide-y');
+
+/** Lines the card snaps to along one axis, and which part of the card (start, centre, end) may sit on each. */
+const snapLines = (length) => [
+  [MARGIN, ['start']],
+  [length - MARGIN, ['end']],
+  [length / 2, ['center', 'start', 'end']],
+  [length / 3, ['start', 'center', 'end']],
+  [(length * 2) / 3, ['start', 'center', 'end']],
+];
+
+/** Snaps to the nearest line within reach, otherwise to the grid. `line` is where to draw the guide, or null. */
+function snapAxis(pos, size, length) {
+  let best = null;
+  for (const [line, parts] of snapLines(length)) {
+    for (const part of parts) {
+      const offset = part === 'start' ? 0 : part === 'center' ? size / 2 : size;
+      const d = Math.abs(pos + offset - line);
+      if (d <= SNAP && (!best || d < best.d)) best = { d, pos: line - offset, line };
+    }
+  }
+  return best || { pos: Math.round(pos / GRID) * GRID, line: null };
+}
+
+function showGuide(el, at, side) {
+  el.classList.toggle('on', at !== null);
+  if (at !== null) el.style[side] = `${Math.round(at)}px`;
+}
+
 let drag = null;
 card.addEventListener('pointerdown', (e) => {
   if (!editing || e.target.closest('button')) return;
   drag = { dx: e.clientX - card.offsetLeft, dy: e.clientY - card.offsetTop };
   card.setPointerCapture(e.pointerId);
 });
-card.addEventListener('pointermove', (e) => { if (drag) placeCard(e.clientX - drag.dx, e.clientY - drag.dy); });
+card.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  let x = e.clientX - drag.dx, y = e.clientY - drag.dy, lineX = null, lineY = null;
+  if (!e.altKey) { // hold Alt to move freely
+    const hint = card.querySelector('.edit-hint');
+    const height = card.offsetHeight - hint.offsetHeight - 8; // the hint under the card only shows while moving
+    ({ pos: x, line: lineX } = snapAxis(x, card.offsetWidth, innerWidth));
+    ({ pos: y, line: lineY } = snapAxis(y, height, innerHeight));
+  }
+  placeCard(x, y);
+  showGuide(guideX, lineX, 'left');
+  showGuide(guideY, lineY, 'top');
+});
 card.addEventListener('pointerup', () => {
   if (!drag) return;
   drag = null;
+  showGuide(guideX, null);
+  showGuide(guideY, null);
   api.send('card-moved', { x: card.offsetLeft, y: card.offsetTop });
 });
 $('#done').addEventListener('click', () => api.send('edit-done'));
@@ -239,7 +295,7 @@ api.on('settings', applySettings);
 api.on('state', onState);
 api.on('cover', (c) => { lastCover = c; if (track && c.key === track.key) $('#cover').src = c.data; });
 api.on('lyrics', (l) => { lyrics = l; panelSig = ''; shownIdx = null; });
-api.on('edit', (on) => { editing = on; card.classList.toggle('editing', on); panelSig = ''; if (!on && !track) panel.replaceChildren(); });
+api.on('edit', (on) => { editing = on; card.classList.toggle('editing', on); document.body.classList.toggle('moving', on); panelSig = ''; if (!on && !track) panel.replaceChildren(); });
 api.on('toast', toast);
 api.on('panel-open', (open) => gear.classList.toggle('open', open));
 api.on('sync-now', () => {

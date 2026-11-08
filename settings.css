@@ -25,6 +25,8 @@ section { padding: 8px 14px 10px; border-top: 1px solid var(--line); }
 h2 { margin: 2px 0 6px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
 
 .row { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; cursor: pointer; }
+.row.sub { padding-left: 14px; color: var(--dim); }
+.row.sub.off { opacity: .4; pointer-events: none; }
 kbd { margin-left: 6px; font: 10px "Inter", sans-serif; color: var(--dim); padding: 1px 5px; border-radius: 4px; box-shadow: inset 0 0 0 1px var(--line); }
 
 /* Switches */
@@ -64,6 +66,7 @@ button:disabled { opacity: .35; cursor: default; pointer-events: none; }
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .3); transition: transform .15s;
 }
 .swatches button:hover { transform: scale(1.12); }
+.swatches .rainbow { background: conic-gradient(#ff4d5e, #ffb648, #f5f25c, #5cf2b0, #6cc8ff, #b47cff, #ff6fae, #ff4d5e); }
 .swatches button.on { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px #fff; }
 
 .song-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; }

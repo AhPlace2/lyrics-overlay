@@ -8,6 +8,9 @@
 <link rel="stylesheet" href="overlay.css">
 </head>
 <body class="font-clean">
+  <div id="grid" class="grid"></div>
+  <div id="guide-x" class="guide guide-x"></div>
+  <div id="guide-y" class="guide guide-y"></div>
   <div id="card" class="card hidden">
     <div class="now">
       <div class="cover"><img id="cover" alt=""></div>
@@ -28,9 +31,9 @@
       </div>
     </div>
     <div id="panel" class="panel"></div>
-    <div class="edit-hint">Drag the card where you want it <button id="done" type="button">Done</button></div>
+    <div class="edit-hint"><span>Drag the card where you want it<small>Snaps to lines and the grid. Hold Alt to move freely.</small></span> <button id="done" type="button">Done</button></div>
   </div>
-  <div id="big" class="big fx-depth"></div>
+  <div id="big" class="big look-depth colour-accent motion-none"></div>
   <div id="toast" class="toast"></div>
   <script src="overlay.js"></script>
 </body>

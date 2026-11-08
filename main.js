@@ -10,8 +10,13 @@ const { findCover } = require('./cover');
 const DEFAULTS = {
   enabled: true,
   showCard: true,
+  showCardLyrics: true, // the lyric lines under the card
+  seeThrough: true, // card turns see-through while the mouse is over it
   showBig: true,
-  effect: 'depth',
+  // Big lyrics style: a look, a colour and a motion, picked separately so they combine.
+  look: 'depth',
+  colourMode: 'accent', // 'accent' uses the colour picked below, 'rainbow' cycles through colours
+  motion: 'none',
   font: 'clean',
   accent: '#ffb648',
   bigPosition: 'center',
@@ -19,7 +24,17 @@ const DEFAULTS = {
   picks: {}, // song -> the lyrics version chosen with "Try other lyrics"
   card: { x: 24, y: 24 },
 };
-const EFFECTS = [['depth', 'Depth (3D)'], ['glow', 'Glow'], ['rainbow', 'Rainbow'], ['wave', 'Wave'], ['plain', 'Plain']];
+const LOOKS = [['depth', 'Depth (3D)'], ['glow', 'Glow'], ['outline', 'Outline'], ['plain', 'Plain']];
+const MOTIONS = [['none', 'None'], ['wave', 'Wave'], ['bounce', 'Bounce'], ['pulse', 'Pulse']];
+const COLOUR_MODES = [['accent', 'Colour'], ['rainbow', 'Rainbow']];
+// The single "effect" setting from before, translated into look, colour and motion.
+const OLD_EFFECTS = {
+  depth: { look: 'depth', colourMode: 'accent', motion: 'none' },
+  glow: { look: 'glow', colourMode: 'accent', motion: 'none' },
+  rainbow: { look: 'depth', colourMode: 'rainbow', motion: 'none' },
+  wave: { look: 'glow', colourMode: 'accent', motion: 'wave' },
+  plain: { look: 'plain', colourMode: 'accent', motion: 'none' },
+};
 const FONTS = [['clean', 'Clean'], ['serif', 'Serif'], ['pixel', 'Pixel']];
 const ACCENTS = [['#ffb648', 'Amber'], ['#5cf2b0', 'Mint'], ['#ff6fae', 'Pink'], ['#6cc8ff', 'Sky'], ['#ff4d5e', 'Red'], ['#ffffff', 'White']];
 const POSITIONS = [['center', 'Middle of the screen'], ['bottom', 'Lower third']];
@@ -45,6 +60,8 @@ function loadSettings() {
   try {
     const saved = JSON.parse(fs.readFileSync(settingsFile(), 'utf8'));
     delete saved.lead; // Timing used to be one setting for every song; it is per song now.
+    if (saved.effect) Object.assign(saved, saved.look ? {} : OLD_EFFECTS[saved.effect] || {});
+    delete saved.effect;
     return { ...DEFAULTS, ...saved, offsets: saved.offsets || {}, picks: saved.picks || {} };
   } catch { return { ...DEFAULTS }; }
 }
@@ -286,7 +303,7 @@ function panelState() {
   const lyrics = s && lastLyrics?.key === s.key ? lastLyrics : null;
   return {
     settings,
-    options: { effects: EFFECTS, fonts: FONTS, accents: ACCENTS, positions: POSITIONS },
+    options: { looks: LOOKS, motions: MOTIONS, fonts: FONTS, accents: ACCENTS, positions: POSITIONS },
     song: s && {
       title: s.title || 'Unknown title', artist: s.artist || '', lead: songLead(),
       picked: !!settings.picks[songKey(s)],
@@ -306,17 +323,19 @@ function togglePanel() {
   // Next to the card, or on its left when there is no room on the right.
   let x = area.x + settings.card.x + 340;
   if (x + PANEL_WIDTH > area.x + area.width) x = area.x + settings.card.x - PANEL_WIDTH;
-  panel = new BrowserWindow({
+  const w = new BrowserWindow({
     x: Math.max(area.x, x), y: area.y + Math.max(0, settings.card.y - 10), width: PANEL_WIDTH, height: 600,
     transparent: true, frame: false, resizable: false, minimizable: false, maximizable: false, fullscreenable: false,
     skipTaskbar: true, hasShadow: false, show: false, backgroundColor: '#00000000',
     webPreferences: { preload: path.join(__dirname, 'preload-settings.js'), contextIsolation: true, nodeIntegration: false },
   });
-  panel.setAlwaysOnTop(true, 'screen-saver');
-  panel.loadFile(path.join(__dirname, 'settings.html'));
-  panel.webContents.on('did-finish-load', () => { refreshPanel(); panel.show(); });
-  panel.on('blur', () => panel?.close()); // closes like a menu when you click elsewhere
-  panel.on('closed', () => { panel = null; send('panel-open', false); });
+  panel = w;
+  w.setAlwaysOnTop(true, 'screen-saver');
+  w.loadFile(path.join(__dirname, 'settings.html'));
+  w.webContents.on('did-finish-load', () => { refreshPanel(); w.show(); });
+  w.on('blur', () => { if (!w.isDestroyed()) w.close(); }); // closes like a menu when you click elsewhere
+  // Only forget this window if it is still the current one; a panel closed late must not orphan a newer one.
+  w.on('closed', () => { if (panel === w) { panel = null; send('panel-open', false); } });
   send('panel-open', true);
 }
 
@@ -329,14 +348,16 @@ function sizePanel(height) {
 }
 
 function onPanelAction(name, value) {
-  const choices = { effect: EFFECTS, font: FONTS, accent: ACCENTS, bigPosition: POSITIONS };
+  const choices = { look: LOOKS, motion: MOTIONS, colourMode: COLOUR_MODES, font: FONTS, accent: ACCENTS, bigPosition: POSITIONS };
   switch (name) {
     case 'toggle':
       if (value === 'enabled') toggleEnabled();
-      else if (value === 'showCard' || value === 'showBig') update({ [value]: !settings[value] });
+      else if (['showCard', 'showCardLyrics', 'seeThrough', 'showBig'].includes(value)) update({ [value]: !settings[value] });
       break;
     case 'choose':
-      if (choices[value?.key]?.some(([v]) => v === value.value)) update({ [value.key]: value.value });
+      if (!choices[value?.key]?.some(([v]) => v === value.value)) break;
+      // Picking a colour swatch also leaves rainbow mode, so the pick shows straight away.
+      update(value.key === 'accent' ? { accent: value.value, colourMode: 'accent' } : { [value.key]: value.value });
       break;
     case 'earlier': nudge(.25); break;
     case 'later': nudge(-.25); break;

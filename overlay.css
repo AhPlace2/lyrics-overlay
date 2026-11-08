@@ -59,6 +59,14 @@ body.font-serif .artist { font-size: 15px; }
 .gear:hover svg { transform: rotate(45deg); }
 .gear.open { color: var(--accent); }
 .card.hidden { pointer-events: none; }
+.card.no-lyrics .panel { display: none; }
+
+/* See-through while the mouse is over the card; the gear stays easy to find. */
+.now, .panel { transition: background-color .2s ease, box-shadow .2s ease; }
+.cover, .meta, .eq, .panel > * { transition: opacity .2s ease; }
+.card.see-through .now, .card.see-through .panel { background-color: rgba(14, 14, 18, .06); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12); }
+.card.see-through .cover, .card.see-through .meta, .card.see-through .eq, .card.see-through .panel > * { opacity: .1; }
+.card.see-through .gear { opacity: 1; color: var(--text); background: rgba(14, 14, 18, .85); }
 .eq { display: flex; gap: 2px; align-items: flex-end; height: 12px; margin: 0 2px 2px 0; }
 .eq i { width: 3px; background: var(--accent); border-radius: 1px; animation: eq 1s ease-in-out infinite; }
 .eq i:nth-child(2) { animation-delay: -.35s; }
@@ -91,6 +99,24 @@ body.font-serif .artist { font-size: 15px; }
 .card.editing { cursor: move; }
 .card.editing .now { outline: 2px dashed var(--accent); outline-offset: 4px; }
 .card.editing .edit-hint { display: flex; }
+.edit-hint small { display: block; color: var(--dim); font-size: 11px; margin-top: 2px; }
+
+/* Grid and guide lines while moving the card (24 px grid, a stronger line every 96 px). */
+.grid {
+  position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity .25s ease;
+  background-color: rgba(0, 0, 0, .18);
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, .13) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, .13) 1px, transparent 1px),
+    linear-gradient(to right, rgba(255, 255, 255, .05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, .05) 1px, transparent 1px);
+  background-size: 96px 96px, 96px 96px, 24px 24px, 24px 24px;
+}
+body.moving .grid { opacity: 1; }
+.guide { position: absolute; pointer-events: none; display: none; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.guide.on { display: block; }
+.guide-x { top: 0; bottom: 0; width: 1px; }
+.guide-y { left: 0; right: 0; height: 1px; }
 
 /* ---------- Big floating lyrics ---------- */
 .big {
@@ -119,29 +145,38 @@ body.font-pixel .line { font-weight: 700; letter-spacing: .02em; }
 }
 .inner { display: inline-block; }
 
-.fx-plain .inner { color: #fff; text-shadow: 0 2px 10px rgba(0, 0, 0, .75), 0 0 2px rgba(0, 0, 0, .9); }
-.fx-depth .inner {
-  color: var(--accent);
+/* Big lyrics style = look × colour × motion, each picked on its own.
+   --c is the word's colour: the picked colour, or a hue that moves along the line in rainbow mode. */
+.inner { --c: var(--accent); --c-deep: color-mix(in srgb, var(--c) 42%, #000); }
+.colour-rainbow .inner { --c: hsl(calc(var(--hue) + var(--i) * 32) 95% 66%); }
+
+/* Looks */
+.look-plain .inner { color: var(--c); text-shadow: 0 2px 10px rgba(0, 0, 0, .75), 0 0 2px rgba(0, 0, 0, .9); }
+.look-depth .inner {
+  color: var(--c);
   text-shadow:
-    1px 1px 0 var(--accent-deep), 2px 2px 0 var(--accent-deep), 3px 3px 0 var(--accent-deep),
-    4px 4px 0 var(--accent-deep), 5px 5px 0 var(--accent-deep), 6px 6px 0 color-mix(in srgb, var(--accent-deep) 70%, #000),
+    1px 1px 0 var(--c-deep), 2px 2px 0 var(--c-deep), 3px 3px 0 var(--c-deep),
+    4px 4px 0 var(--c-deep), 5px 5px 0 var(--c-deep), 6px 6px 0 color-mix(in srgb, var(--c-deep) 70%, #000),
     10px 12px 18px rgba(0, 0, 0, .5);
 }
-.fx-glow .inner {
-  color: #fff;
-  text-shadow: 0 0 4px var(--accent), 0 0 14px var(--accent), 0 0 36px var(--accent), 0 2px 6px rgba(0, 0, 0, .6);
+.look-glow .inner {
+  color: color-mix(in srgb, var(--c) 22%, #fff);
+  text-shadow: 0 0 4px var(--c), 0 0 14px var(--c), 0 0 36px var(--c), 0 2px 6px rgba(0, 0, 0, .6);
 }
-.fx-rainbow .inner {
-  color: hsl(calc(var(--hue) + var(--i) * 32) 95% 66%);
-  text-shadow: 3px 3px 0 hsl(calc(var(--hue) + var(--i) * 32) 70% 28%), 0 6px 16px rgba(0, 0, 0, .5);
+.look-outline .inner {
+  /* A solid dark fill painted over the stroke hides the font's inner seams. */
+  color: color-mix(in srgb, var(--c) 22%, #101014);
+  -webkit-text-stroke: .09em var(--c); paint-order: stroke fill;
+  text-shadow: 0 4px 14px rgba(0, 0, 0, .45);
 }
-.fx-wave .inner {
-  color: #fff;
-  text-shadow: 0 0 10px var(--accent), 3px 3px 0 var(--accent-deep), 0 6px 16px rgba(0, 0, 0, .5);
-  animation: wave 1.8s ease-in-out infinite;
-  animation-delay: calc(var(--i) * -.14s);
-}
+
+/* Motions (the words' entrance animation runs on .word, so these can use .inner freely) */
+.motion-wave .inner { animation: wave 1.8s ease-in-out infinite; animation-delay: calc(var(--i) * -.14s); }
 @keyframes wave { 0%, 100% { transform: translateY(-.12em); } 50% { transform: translateY(.12em); } }
+.motion-bounce .inner { animation: hop 1.6s cubic-bezier(.3, .7, .4, 1) infinite; animation-delay: calc(var(--i) * .1s); }
+@keyframes hop { 0%, 30%, 100% { transform: none; } 12% { transform: translateY(-.22em) scale(1.04); } }
+.motion-pulse .inner { animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.07); } }
 
 /* ---------- Toast ---------- */
 .toast {
