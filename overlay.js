@@ -159,21 +159,24 @@ function setOverUi(on) {
   api.send('ui-hover', on);
 }
 const clickable = (el) => !!el?.closest?.('.hit:not(:disabled):not(.off)') && !card.classList.contains('hidden');
-gear.addEventListener('click', () => api.send('open-settings'));
+gear.addEventListener('click', () => {
+  const r = card.getBoundingClientRect();
+  api.send('open-settings', { x: Math.round(r.left), y: Math.round(r.top) });
+});
 
-/* The card turns see-through while the mouse is over it, so you can see what you are about to click.
-   Clicks go through it anyway, except on the gear and the controls, which stay solid. */
-function setSeeThrough(on) { card.classList.toggle('see-through', on); }
-// Also tracks whether the mouse is where the card is, so a card hidden after a pause comes back to be played again.
+/* ---------- Clear view while the mouse is on the card ----------
+   While the mouse is over the card, everything on it except the buttons, progress bar and gear disappears,
+   so you can see what is behind. Nothing moves: the clickable parts stay exactly where they were. */
+// Also true while the mouse is on the card, so a card hidden after a pause comes back to be played again.
 let mouseOnCard = false;
+function setPeek(on) { card.classList.toggle('peek', on); }
 addEventListener('mousemove', (e) => {
   setOverUi(!editing && clickable(e.target));
   const r = card.getBoundingClientRect();
   mouseOnCard = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
-  if (!settings.seeThrough || editing || card.classList.contains('hidden')) return setSeeThrough(false);
-  setSeeThrough(mouseOnCard);
+  setPeek(mouseOnCard && settings.seeThrough && !editing && !card.classList.contains('hidden'));
 });
-document.addEventListener('mouseleave', () => { mouseOnCard = false; setSeeThrough(false); setOverUi(false); });
+document.addEventListener('mouseleave', () => { mouseOnCard = false; setOverUi(false); setPeek(false); });
 
 /* ---------- Playback controls ---------- */
 const sendControl = (cmd, extra = {}) => track && api.send('control', { cmd, key: track.key, ...extra });
@@ -232,7 +235,7 @@ function frame() {
   const recent = playing || now - idleSince < 20000;
   const showCard = editing || (settings.enabled && settings.showCard && track && (recent || mouseOnCard || seeking));
   card.classList.toggle('hidden', !showCard);
-  if (!showCard && !seeking) setOverUi(false);
+  if (!showCard && !seeking) { setOverUi(false); setPeek(false); }
 
   if (track) {
     const t = songTime(), length = track.end - track.start;
@@ -359,7 +362,7 @@ api.on('settings', applySettings);
 api.on('state', onState);
 api.on('cover', (c) => { lastCover = c; if (track && c.key === track.key) $('#cover').src = c.data; });
 api.on('lyrics', (l) => { lyrics = l; panelSig = ''; shownIdx = null; });
-api.on('edit', (on) => { editing = on; card.classList.toggle('editing', on); document.body.classList.toggle('moving', on); panelSig = ''; if (!on && !track) panel.replaceChildren(); });
+api.on('edit', (on) => { editing = on; if (on) setPeek(false); card.classList.toggle('editing', on); document.body.classList.toggle('moving', on); panelSig = ''; if (!on && !track) panel.replaceChildren(); });
 api.on('toast', toast);
 api.on('panel-open', (open) => gear.classList.toggle('open', open));
 api.on('sync-now', () => {

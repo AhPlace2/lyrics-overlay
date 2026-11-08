@@ -12,17 +12,53 @@ body { padding: 10px 14px 18px; }
 .root {
   background: var(--panel); border-radius: 12px; overflow: hidden;
   box-shadow: 0 10px 30px rgba(0, 0, 0, .45), inset 0 0 0 1px rgba(255, 255, 255, .08);
-  animation: open .18s cubic-bezier(.2, .9, .3, 1.1);
+  /* Grows out of the card's side: from the left edge when the panel sits right of the card, else the right. */
+  transform-origin: 0 24px;
+  opacity: 0; /* until the window is on screen */
 }
-@keyframes open { from { opacity: 0; transform: translateY(-6px) scale(.98); } }
+.root.open { animation: open .26s cubic-bezier(.2, .9, .25, 1.06) forwards; }
+[data-side="left"] .root { transform-origin: 100% 24px; }
+@keyframes open {
+  from { opacity: 0; transform: translateX(var(--from, -14px)) scale(.94); }
+  to { opacity: 1; transform: none; }
+}
+[data-side="left"] { --from: 14px; }
+.root.closing { animation: close .16s cubic-bezier(.4, 0, 1, 1) forwards; }
+@keyframes close { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateX(var(--from, -14px)) scale(.95); } }
+
+/* Tabs: a segmented control with a highlight that slides to the chosen tab. */
+.tabs {
+  position: relative; display: grid; grid-template-columns: repeat(3, 1fr);
+  margin: 0 12px 4px; padding: 3px; border-radius: 9px; background: rgba(255, 255, 255, .06);
+}
+.tabs .ind {
+  position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / 3); border-radius: 7px;
+  background: rgba(255, 255, 255, .13); box-shadow: 0 1px 4px rgba(0, 0, 0, .3);
+  transform: translateX(calc(var(--tab, 0) * 100%)); transition: transform .28s cubic-bezier(.3, .8, .25, 1);
+}
+.tabs button {
+  position: relative; border: 0; background: none; cursor: pointer; padding: 6px 0;
+  font: 600 12px "Inter", sans-serif; color: var(--dim); transition: color .2s;
+}
+.tabs button:hover { color: var(--text); }
+.tabs button.on { color: var(--text); }
+
+/* The tab content: its height animates between tabs, and the new tab slides in from its side. */
+.stage { position: relative; overflow: hidden; transition: height .26s cubic-bezier(.3, .8, .25, 1); }
+.pane { display: none; padding: 8px 14px 12px; }
+.pane.on { display: block; }
+.pane.in-right { animation: in-right .26s cubic-bezier(.2, .8, .25, 1) both; }
+.pane.in-left { animation: in-left .26s cubic-bezier(.2, .8, .25, 1) both; }
+.pane.leaving { display: block; position: absolute; top: 0; left: 0; right: 0; pointer-events: none; animation: fade-out .16s ease forwards; }
+@keyframes in-right { from { opacity: 0; transform: translateX(24px); } }
+@keyframes in-left { from { opacity: 0; transform: translateX(-24px); } }
+@keyframes fade-out { to { opacity: 0; } }
 
 .head { display: flex; align-items: center; justify-content: space-between; padding: 10px 10px 6px 14px; }
 .name { font-weight: 800; font-size: 14px; }
 .icon { border: 0; background: none; color: var(--dim); width: 26px; height: 26px; border-radius: 6px; cursor: pointer; font-size: 13px; }
 .icon:hover { background: rgba(255, 255, 255, .08); color: var(--text); }
 
-section { padding: 8px 14px 10px; border-top: 1px solid var(--line); }
-h2 { margin: 2px 0 6px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
 
 .row { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; cursor: pointer; }
 .row.sub { padding-left: 14px; color: var(--dim); }
@@ -100,7 +136,7 @@ button:disabled { opacity: .35; cursor: default; pointer-events: none; }
 
 .song-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; }
 .hint { margin: 5px 0 0; font-size: 11px; color: var(--dim); }
-.nothing { color: var(--dim); font-style: italic; }
+.nothing { margin: 8px 0 4px; color: var(--dim); font-style: italic; }
 .hidden { display: none; }
 
 .foot { display: flex; justify-content: space-between; padding: 10px 14px 12px; border-top: 1px solid var(--line); }

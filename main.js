@@ -12,7 +12,7 @@ const DEFAULTS = {
   enabled: true,
   showCard: true,
   showCardLyrics: true, // the lyric lines under the card
-  seeThrough: true, // card turns see-through while the mouse is over it
+  seeThrough: true, // while the mouse is on the card, only its buttons stay visible
   showBig: true,
   // Big lyrics style: a look, a colour and a motion, picked separately so they combine.
   look: 'depth',
@@ -379,23 +379,34 @@ function refreshPanel() {
   if (panel && !panel.isDestroyed()) panel.webContents.send('panel-state', panelState());
 }
 
-function togglePanel() {
-  if (panel && !panel.isDestroyed()) return panel.close();
+/** Plays the panel's closing animation, then closes it. */
+function closePanel(w = panel) {
+  if (!w || w.isDestroyed() || w.closingSoon) return;
+  w.closingSoon = true;
+  w.webContents.send('panel-closing');
+  setTimeout(() => { if (!w.isDestroyed()) w.close(); }, 170);
+}
+
+/** `at` is where the card is on screen right now. */
+function togglePanel(at) {
+  if (panel && !panel.isDestroyed()) return closePanel();
   const area = screen.getPrimaryDisplay().workArea;
+  const card = Number.isFinite(at?.x) && Number.isFinite(at?.y) ? at : settings.card;
   // Next to the card, or on its left when there is no room on the right.
-  let x = area.x + settings.card.x + 340;
-  if (x + PANEL_WIDTH > area.x + area.width) x = area.x + settings.card.x - PANEL_WIDTH;
+  let x = area.x + card.x + 340, side = 'right';
+  if (x + PANEL_WIDTH > area.x + area.width) { x = area.x + card.x - PANEL_WIDTH; side = 'left'; }
   const w = new BrowserWindow({
-    x: Math.max(area.x, x), y: area.y + Math.max(0, settings.card.y - 10), width: PANEL_WIDTH, height: 600,
+    x: Math.max(area.x, Math.round(x)), y: area.y + Math.max(0, Math.round(card.y) - 10), width: PANEL_WIDTH, height: 600,
     transparent: true, frame: false, resizable: false, minimizable: false, maximizable: false, fullscreenable: false,
     skipTaskbar: true, hasShadow: false, show: false, backgroundColor: '#00000000',
     webPreferences: { preload: path.join(__dirname, 'preload-settings.js'), contextIsolation: true, nodeIntegration: false },
   });
   panel = w;
   w.setAlwaysOnTop(true, 'screen-saver');
-  w.loadFile(path.join(__dirname, 'settings.html'));
-  w.webContents.on('did-finish-load', () => { refreshPanel(); w.show(); });
-  w.on('blur', () => { if (!w.isDestroyed()) w.close(); }); // closes like a menu when you click elsewhere
+  w.loadFile(path.join(__dirname, 'settings.html'), { query: { side } });
+  // The opening animation starts once the window is on screen, so it isn't over before anyone sees it.
+  w.webContents.on('did-finish-load', () => { refreshPanel(); w.show(); w.webContents.send('panel-opening'); });
+  w.on('blur', () => closePanel(w)); // closes like a menu when you click elsewhere
   // Only forget this window if it is still the current one; a panel closed late must not orphan a newer one.
   w.on('closed', () => { if (panel === w) { panel = null; send('panel-open', false); } });
   send('panel-open', true);
@@ -433,7 +444,7 @@ function onPanelAction(name, value) {
     case 'search': if (lastState?.active) lookUp(lastState, true); break;
     case 'move': panel?.close(); setEditing(true); break;
     case 'quit': app.quit(); break;
-    case 'close': panel?.close(); break;
+    case 'close': closePanel(); break;
     case 'size': sizePanel(value); break;
   }
 }
@@ -443,7 +454,7 @@ function buildMenu() {
   if (!tray) return;
   // Just the essentials; everything else lives in the settings panel.
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Settings…', click: togglePanel },
+    { label: 'Settings…', click: () => togglePanel() },
     { label: 'Show lyrics', type: 'checkbox', checked: settings.enabled, accelerator: 'Control+Alt+L', click: toggleEnabled },
     { type: 'separator' },
     { label: 'Quit', click: () => app.quit() },
@@ -483,7 +494,7 @@ function start() {
     if (Number.isFinite(pos?.x) && Number.isFinite(pos?.y)) update({ card: { x: Math.round(pos.x), y: Math.round(pos.y) } });
   });
   ipcMain.on('edit-done', () => setEditing(false));
-  ipcMain.on('open-settings', togglePanel);
+  ipcMain.on('open-settings', (_e, at) => togglePanel(at));
   ipcMain.on('control', (e, msg) => { if (win && e.sender === win.webContents) control(msg); });
   ipcMain.on('ui-hover', (_e, on) => { if (!editing) win.setIgnoreMouseEvents(!on, { forward: true }); });
   ipcMain.on('panel-action', (e, msg) => { if (panel && e.sender === panel.webContents) onPanelAction(msg?.name, msg?.value); });

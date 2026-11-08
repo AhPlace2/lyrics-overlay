@@ -151,6 +151,61 @@ for (const b of $$('[data-act]')) b.addEventListener('click', () => bridge.act(b
 $('#close').addEventListener('click', () => bridge.act('close'));
 addEventListener('keydown', (e) => { if (e.key === 'Escape') bridge.act('close'); });
 
-// Let the window grow or shrink with what is shown.
-new ResizeObserver(() => bridge.act('size', Math.ceil(document.body.getBoundingClientRect().height))).observe(document.body);
+/* ---------- Window size ----------
+   The window grows or shrinks with what is shown. While a tab change animates the height, the window is
+   sized once for the taller of the two tabs instead of on every frame, then fitted when it is done. */
+let sizeLock = 0;
+const bodyHeight = () => Math.ceil(document.body.getBoundingClientRect().height);
+new ResizeObserver(() => { if (!sizeLock) bridge.act('size', bodyHeight()); }).observe(document.body);
+
+/* ---------- Tabs ---------- */
+const TABS = ['show', 'look', 'song'];
+const stage = $('#stage');
+let tab = null, tabDone = null;
+
+function showTab(name, animate = true) {
+  if (!TABS.includes(name) || name === tab) return;
+  const from = tab, oldPane = from && $(`[data-pane="${from}"]`), newPane = $(`[data-pane="${name}"]`);
+  tab = name;
+  try { localStorage.setItem('tab', name); } catch { /* the tab just isn't remembered */ }
+  const i = TABS.indexOf(name);
+  $('.tabs').style.setProperty('--tab', i);
+  for (const b of $$('[data-tab]')) { b.classList.toggle('on', b.dataset.tab === name); b.setAttribute('aria-selected', b.dataset.tab === name); }
+
+  clearTimeout(tabDone);
+  for (const p of $$('.pane')) p.classList.remove('on', 'leaving', 'in-left', 'in-right');
+  if (!animate || !oldPane) { newPane.classList.add('on'); stage.style.height = ''; return; }
+
+  const h0 = stage.offsetHeight;
+  oldPane.classList.add('leaving');
+  newPane.classList.add('on', i > TABS.indexOf(from) ? 'in-right' : 'in-left');
+  const h1 = newPane.offsetHeight;
+  sizeLock++;
+  bridge.act('size', bodyHeight() - stage.offsetHeight + Math.max(h0, h1));
+  stage.style.height = `${h0}px`;
+  void stage.offsetHeight; // start the height animation from the old tab's height
+  stage.style.height = `${h1}px`;
+  tabDone = setTimeout(() => {
+    oldPane.classList.remove('leaving');
+    stage.style.height = '';
+    sizeLock = Math.max(0, sizeLock - 1);
+    bridge.act('size', bodyHeight());
+  }, 280);
+}
+for (const b of $$('[data-tab]')) b.addEventListener('click', () => showTab(b.dataset.tab));
+addEventListener('keydown', (e) => { // Ctrl+Tab / Ctrl+Shift+Tab move between tabs
+  if (e.key === 'Tab' && e.ctrlKey) { e.preventDefault(); showTab(TABS[(TABS.indexOf(tab) + (e.shiftKey ? 2 : 1)) % 3]); }
+});
+let lastTab = 'show';
+try { lastTab = localStorage.getItem('tab') || 'show'; } catch { /* first tab then */ }
+showTab(lastTab, false);
+
+/* ---------- Opening and closing ----------
+   The panel grows out of the card's side; main says which side. Closing plays the reverse first. */
+document.documentElement.dataset.side = new URLSearchParams(location.search).get('side') || 'right';
+const opening = () => $('#root').classList.add('open');
+bridge.onOpening(opening);
+setTimeout(opening, 400); // in case the "now on screen" message never comes, show the panel anyway
+bridge.onClosing(() => $('#root').classList.add('closing'));
+
 bridge.onState(render);
