@@ -116,6 +116,18 @@ function delayEarlyStarts(lines) {
   return out;
 }
 
+/**
+ * Uploads often name the uploader instead of the artist (a channel, or whoever made the mashup), so
+ * nothing matches by artist. As a last try, match on the title alone, but only when the length agrees
+ * to within 3 seconds, which keeps common titles like "Intro" from matching the wrong song.
+ */
+function titleOnlyMatches(results, title, duration) {
+  if (!(duration > 0)) return [];
+  return (results || [])
+    .filter((r) => r.syncedLyrics && r.duration && similarity(r.trackName, title) >= .8 && Math.abs(r.duration - duration) <= 3)
+    .sort((a, b) => Math.abs(a.duration - duration) - Math.abs(b.duration - duration));
+}
+
 const found = (r) => ({ lines: delayEarlyStarts(parseLRC(r.syncedLyrics)), source: `${r.artistName} – ${r.trackName}`, pick: `lrclib:${r.id}`, provider: 'LRCLIB' });
 
 /**
@@ -140,6 +152,12 @@ async function findLyrics(track) {
     const pick = best(await request('/search', { q: `${list[0].artist} ${list[0].title}`.trim() }), list[0], duration);
     if (pick) return found(pick);
   }
+  if (duration) {
+    for (const title of new Set(list.map((c) => c.title))) {
+      const [pick] = titleOnlyMatches(await request('/search', { q: title }), title, duration);
+      if (pick) return found(pick);
+    }
+  }
   return plainOnly ? { plainOnly: true } : null;
 }
 
@@ -159,6 +177,10 @@ async function lrclibVersions(track, duration) {
     const params = c.artist ? { track_name: c.title, artist_name: c.artist } : { q: c.title };
     const results = (await request('/search', params)) || [];
     for (const r of results) if (score(r, c, duration) > 4) out.push({ r, s: score(r, c, duration) });
+    // Title-and-length matches come last, after any version whose artist matched too.
+    for (const r of titleOnlyMatches(await request('/search', { q: c.title }), c.title, duration)) {
+      out.push({ r, s: 2 - Math.abs(r.duration - duration) * .1 });
+    }
   }
   return out.sort((a, b) => b.s - a.s).map(({ r }) => found(r));
 }
