@@ -1,7 +1,7 @@
 'use strict';
 const { contextBridge, ipcRenderer } = require('electron');
 
-const INCOMING = ['settings', 'state', 'cover', 'lyrics', 'edit', 'toast', 'sync-now', 'panel-open'];
+const INCOMING = ['settings', 'state', 'cover', 'cover-colour', 'lyrics', 'edit', 'toast', 'sync-now', 'panel-open'];
 const OUTGOING = ['card-moved', 'edit-done', 'set-offset', 'open-settings', 'ui-hover', 'control'];
 
 contextBridge.exposeInMainWorld('overlay', {

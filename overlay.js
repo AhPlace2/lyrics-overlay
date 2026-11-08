@@ -3,7 +3,7 @@ const api = window.overlay;
 const $ = (s) => document.querySelector(s);
 const card = $('#card'), panel = $('#panel'), big = $('#big');
 
-let settings = { enabled: true, showCard: true, showCardLyrics: true, seeThrough: true, showBig: true, look: 'depth', colourMode: 'accent', motion: 'none', font: 'clean', accent: '#ffb648', bigPosition: 'center', offsets: {}, card: { x: 24, y: 24 } };
+let settings = { enabled: true, showCard: true, showCardLyrics: true, showBig: true, look: 'depth', colourMode: 'accent', motion: 'none', font: 'clean', accent: '#ffb648', bigPosition: 'center', offsets: {}, card: { x: 24, y: 24 } };
 let track = null, lyrics = { key: null, status: 'idle', lines: [] };
 let anchorPos = 0, anchorMs = 0, playing = false, idleSince = Date.now();
 let shownIdx = null, shownKey = null, panelSig = '', editing = false, lastCover = null;
@@ -147,36 +147,32 @@ function renderPanel(lines, idx, t) {
   }
 }
 
-/* ---------- Clickable parts: settings gear, playback controls, progress bar ----------
-   The overlay lets clicks through to the desktop. While the pointer is on something clickable (marked
-   .hit), it asks to catch them instead. A drag on the progress bar keeps catching them until it ends. */
+/* ---------- Catching the mouse on the card ----------
+   The overlay lets clicks through to the desktop. While the pointer is on the card, it asks to catch them
+   instead, so the buttons work and the card can be dragged out of the way. A drag (of the card or on the
+   progress bar) keeps catching them until it ends, even when the pointer runs ahead of the card. */
 const gear = $('#gear'), bar = $('#bar'), playBtn = $('#play');
-let overUi = false, seeking = null;
+let overUi = false, seeking = null, drag = null;
 function setOverUi(on) {
-  if (seeking) on = true;
+  if (seeking || drag) on = true;
   if (on === overUi) return;
   overUi = on;
   api.send('ui-hover', on);
 }
-const clickable = (el) => !!el?.closest?.('.hit:not(:disabled):not(.off)') && !card.classList.contains('hidden');
+const clickable = (el) => !!el?.closest?.('#card') && !card.classList.contains('hidden');
 gear.addEventListener('click', () => {
   const r = card.getBoundingClientRect();
   api.send('open-settings', { x: Math.round(r.left), y: Math.round(r.top) });
 });
 
-/* ---------- Clear view while the mouse is on the card ----------
-   While the mouse is over the card, everything on it except the buttons, progress bar and gear disappears,
-   so you can see what is behind. Nothing moves: the clickable parts stay exactly where they were. */
 // Also true while the mouse is on the card, so a card hidden after a pause comes back to be played again.
 let mouseOnCard = false;
-function setPeek(on) { card.classList.toggle('peek', on); }
 addEventListener('mousemove', (e) => {
   setOverUi(!editing && clickable(e.target));
   const r = card.getBoundingClientRect();
   mouseOnCard = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
-  setPeek(mouseOnCard && settings.seeThrough && !editing && !card.classList.contains('hidden'));
 });
-document.addEventListener('mouseleave', () => { mouseOnCard = false; setOverUi(false); setPeek(false); });
+document.addEventListener('mouseleave', () => { mouseOnCard = false; setOverUi(false); });
 
 /* ---------- Playback controls ---------- */
 const sendControl = (cmd, extra = {}) => track && api.send('control', { cmd, key: track.key, ...extra });
@@ -235,7 +231,7 @@ function frame() {
   const recent = playing || now - idleSince < 20000;
   const showCard = editing || (settings.enabled && settings.showCard && track && (recent || mouseOnCard || seeking));
   card.classList.toggle('hidden', !showCard);
-  if (!showCard && !seeking) { setOverUi(false); setPeek(false); }
+  if (!showCard && !seeking && !drag) setOverUi(false);
 
   if (track) {
     const t = songTime(), length = track.end - track.start;
@@ -273,10 +269,23 @@ function frame() {
   requestAnimationFrame(frame);
 }
 
+/* ---------- Colour ----------
+   Everything coloured (big lyrics, the card's bar and current line) follows --accent: the picked colour, the
+   cover's colour, or in fade mode a colour that flows between the two fade colours (done in CSS). */
+let coverColour = null; // the cover's main colour, worked out by main
+function applyAccent() {
+  const root = document.documentElement, s = settings;
+  root.classList.toggle('colour-fade', s.colourMode === 'fade');
+  root.style.setProperty('--fade-a', s.fadeFrom || '#ff6fae');
+  root.style.setProperty('--fade-b', s.fadeTo || '#6cc8ff');
+  if (s.colourMode === 'fade') root.style.removeProperty('--accent');
+  else root.style.setProperty('--accent', s.colourMode === 'cover' && coverColour ? coverColour : s.accent);
+}
+
 /* ---------- Settings, moving the card, messages ---------- */
 function applySettings(s) {
   settings = s;
-  document.documentElement.style.setProperty('--accent', s.accent);
+  applyAccent();
   document.documentElement.style.setProperty('--big-top', s.bigPosition === 'bottom' ? '76%' : '44%');
   document.body.className = `font-${s.font}`;
   big.className = `big look-${s.look} colour-${s.colourMode} motion-${s.motion}${big.classList.contains('fade') ? ' fade' : ''}`;
@@ -288,7 +297,11 @@ function placeCard(x, y) {
   const maxX = Math.max(0, innerWidth - card.offsetWidth), maxY = Math.max(0, innerHeight - 120);
   card.style.left = `${Math.min(maxX, Math.max(0, x))}px`;
   card.style.top = `${Math.min(maxY, Math.max(0, y))}px`;
+  // The grid only shows near the card, centred on its main part (not the hint under it).
+  grid.style.setProperty('--gx', `${card.offsetLeft + card.offsetWidth / 2}px`);
+  grid.style.setProperty('--gy', `${card.offsetTop + card.querySelector('.now').offsetHeight / 2 + 40}px`);
 }
+const grid = $('#grid');
 
 /* ---------- Moving the card: grid, guides and snapping ---------- */
 const GRID = 24, MARGIN = 24, SNAP = 12;
@@ -321,18 +334,27 @@ function showGuide(el, at, side) {
   if (at !== null) el.style[side] = `${Math.round(at)}px`;
 }
 
-let drag = null;
+/* Drag the card from anywhere but its buttons and progress bar, any time (not only in "Move card" mode),
+   so it can be pushed aside when it is over something you want to click. It only starts moving after a
+   few pixels, so a plain click on the card does nothing. */
 card.addEventListener('pointerdown', (e) => {
-  if (!editing || e.target.closest('button')) return;
-  drag = { dx: e.clientX - card.offsetLeft, dy: e.clientY - card.offsetTop };
+  if (e.button !== 0 || card.classList.contains('hidden')) return;
+  if (e.target.closest('button') || e.target.closest('.bar:not(.off)')) return;
+  drag = { dx: e.clientX - card.offsetLeft, dy: e.clientY - card.offsetTop, x0: e.clientX, y0: e.clientY, moved: false };
   card.setPointerCapture(e.pointerId);
+  setOverUi(true);
 });
 card.addEventListener('pointermove', (e) => {
   if (!drag) return;
+  if (!drag.moved) {
+    if (Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 4) return;
+    drag.moved = true;
+    document.body.classList.add('dragging');
+  }
   let x = e.clientX - drag.dx, y = e.clientY - drag.dy, lineX = null, lineY = null;
   if (!e.altKey) { // hold Alt to move freely
-    const hint = card.querySelector('.edit-hint');
-    const height = card.offsetHeight - hint.offsetHeight - 8; // the hint under the card only shows while moving
+    const hint = card.querySelector('.edit-hint'); // only shows (under the card) in "Move card" mode
+    const height = card.offsetHeight - (editing ? hint.offsetHeight + 8 : 0);
     ({ pos: x, line: lineX } = snapAxis(x, card.offsetWidth, innerWidth));
     ({ pos: y, line: lineY } = snapAxis(y, height, innerHeight));
   }
@@ -340,13 +362,19 @@ card.addEventListener('pointermove', (e) => {
   showGuide(guideX, lineX, 'left');
   showGuide(guideY, lineY, 'top');
 });
-card.addEventListener('pointerup', () => {
+function endDrag(e) {
   if (!drag) return;
+  const { moved } = drag;
   drag = null;
+  document.body.classList.remove('dragging');
   showGuide(guideX, null);
   showGuide(guideY, null);
-  api.send('card-moved', { x: card.offsetLeft, y: card.offsetTop });
-});
+  if (!editing) setOverUi(clickable(document.elementFromPoint(e.clientX, e.clientY)));
+  if (moved) api.send('card-moved', { x: card.offsetLeft, y: card.offsetTop });
+}
+card.addEventListener('pointerup', endDrag);
+card.addEventListener('pointercancel', endDrag);
+card.addEventListener('lostpointercapture', endDrag);
 $('#done').addEventListener('click', () => api.send('edit-done'));
 
 let toastTimer;
@@ -360,9 +388,10 @@ function toast(msg) {
 
 api.on('settings', applySettings);
 api.on('state', onState);
+api.on('cover-colour', (c) => { coverColour = c.colour; applyAccent(); });
 api.on('cover', (c) => { lastCover = c; if (track && c.key === track.key) $('#cover').src = c.data; });
 api.on('lyrics', (l) => { lyrics = l; panelSig = ''; shownIdx = null; });
-api.on('edit', (on) => { editing = on; if (on) setPeek(false); card.classList.toggle('editing', on); document.body.classList.toggle('moving', on); panelSig = ''; if (!on && !track) panel.replaceChildren(); });
+api.on('edit', (on) => { editing = on; card.classList.toggle('editing', on); document.body.classList.toggle('moving', on); panelSig = ''; if (!on && !track) panel.replaceChildren(); });
 api.on('toast', toast);
 api.on('panel-open', (open) => gear.classList.toggle('open', open));
 api.on('sync-now', () => {

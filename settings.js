@@ -20,27 +20,17 @@ function build(options) {
   chips('motion', options.motions);
   chips('font', options.fonts, (v) => `font-${v}`);
   chips('bigPosition', options.positions.map(([v, l]) => [v, l.replace('Middle of the screen', 'Middle')]));
-  const swatches = $('[data-choose="accent"]');
-  for (const [value, label] of options.accents) {
-    const b = document.createElement('button');
-    b.type = 'button'; b.dataset.value = value; b.title = label; b.style.background = value;
-    b.addEventListener('click', () => bridge.act('choose', { key: 'accent', value }));
-    swatches.append(b);
-  }
-  const rainbow = document.createElement('button');
-  rainbow.type = 'button'; rainbow.dataset.value = 'rainbow'; rainbow.title = 'Rainbow'; rainbow.className = 'rainbow';
-  rainbow.addEventListener('click', () => bridge.act('choose', { key: 'colourMode', value: 'rainbow' }));
-  swatches.append(rainbow);
-  const custom = document.createElement('button');
-  custom.type = 'button'; custom.dataset.value = 'custom'; custom.title = 'Your own colour'; custom.className = 'custom';
-  custom.addEventListener('click', () => togglePicker());
-  swatches.append(custom);
-  presets = options.accents.map(([v]) => v.toLowerCase());
   built = true;
 }
 
-/* ---------- Colour picker ---------- */
-let presets = [], hsv = { h: 0, s: 0, v: 1 }, dragging = false, sentAt = 0, sendTimer = null, lastAccent = null;
+/* ---------- Colour ----------
+   Swatches: your colour (opens the picker), rainbow, the last two colours you picked, a fade between two
+   colours, and the cover's colour. The picker edits your colour, or one end of the fade. */
+let current = null; // the last state from main
+let target = null; // what the picker is editing: 'accent', 'fadeFrom', 'fadeTo', or null when closed
+let hsv = { h: 0, s: 0, v: 1 }, dragging = false, sentAt = 0, sendTimer = null, shown = null;
+const choose = (key, value, extra) => bridge.act('choose', { key, value, ...extra });
+const mode = () => current?.settings.colourMode;
 
 const hexToHsv = (hex) => {
   const n = parseInt(hex.slice(1), 16), r = (n >> 16) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
@@ -67,17 +57,22 @@ function drawPicker(updateHex = true) {
 }
 
 // Sends the colour while dragging, but at most every 60 ms, since each change is saved to disk.
-function pickColour(hex, now = false) {
+// "commit" marks the colour as really picked (for the history), which happens when you let go.
+function pickColour(hex, commit = false) {
+  if (!target) return;
   clearTimeout(sendTimer);
-  const go = () => { sentAt = Date.now(); bridge.act('choose', { key: 'accent', value: hex }); };
-  if (now || Date.now() - sentAt > 60) go();
+  const key = target;
+  const go = () => { sentAt = Date.now(); choose(key, hex, { commit }); };
+  if (commit || Date.now() - sentAt > 60) go();
   else sendTimer = setTimeout(go, 60);
 }
 
-function togglePicker(open = $('#picker').classList.contains('hidden')) {
-  $('#picker').classList.toggle('hidden', !open);
-  $('[data-value="custom"]').classList.toggle('open', open);
-  if (open && lastAccent) { hsv = hexToHsv(lastAccent); drawPicker(); }
+/** Opens the picker on a colour (or closes it with null), loaded with that colour. */
+function openPicker(what) {
+  target = what;
+  $('#picker').classList.toggle('hidden', !what);
+  if (what && current) { shown = current.settings[what]; hsv = hexToHsv(shown); drawPicker(); }
+  render(current);
 }
 
 function dragOn(el, onMove) {
@@ -96,43 +91,99 @@ function dragOn(el, onMove) {
 dragOn($('#sv'), (x, y) => { hsv = { ...hsv, s: x, v: 1 - y }; });
 dragOn($('#hue'), (x) => { hsv = { ...hsv, h: Math.min(359.9, x * 360) }; });
 
-$('#hex').addEventListener('input', () => {
+const typedHex = () => {
   let v = $('#hex').value.trim();
   if (!v.startsWith('#')) v = '#' + v;
   if (/^#[0-9a-f]{3}$/i.test(v)) v = '#' + [...v.slice(1)].map((c) => c + c).join('');
-  const ok = /^#[0-9a-f]{6}$/i.test(v);
-  $('#hex').classList.toggle('bad', !ok);
-  if (!ok) return;
-  hsv = hexToHsv(v.toLowerCase());
+  return /^#[0-9a-f]{6}$/i.test(v) ? v.toLowerCase() : null;
+};
+$('#hex').addEventListener('input', () => {
+  const v = typedHex();
+  $('#hex').classList.toggle('bad', !v);
+  if (!v) return;
+  hsv = hexToHsv(v);
   drawPicker(false);
-  pickColour(v.toLowerCase(), true);
+  pickColour(v);
 });
+$('#hex').addEventListener('change', () => { const v = typedHex(); if (v) pickColour(v, true); });
 // Esc in the colour code field closes the panel like everywhere else; Enter just confirms.
 $('#hex').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#hex').blur(); });
 
-function render({ settings, options, song }) {
+// Your colour: the first click uses it straight away (and opens the picker), the next ones open or close it.
+$('[data-colour="accent"]').addEventListener('click', () => {
+  if (mode() !== 'accent') { choose('colourMode', 'accent'); openPicker('accent'); }
+  else openPicker(target === 'accent' ? null : 'accent');
+});
+$('[data-colour="rainbow"]').addEventListener('click', () => { choose('colourMode', 'rainbow'); openPicker(null); });
+$('[data-colour="cover"]').addEventListener('click', () => { choose('colourMode', 'cover'); openPicker(null); });
+$('[data-colour="fade"]').addEventListener('click', () => {
+  if (mode() !== 'fade') choose('colourMode', 'fade');
+  if (target === 'accent') openPicker(null);
+});
+for (const b of $$('[data-end]')) {
+  b.addEventListener('click', () => openPicker(target === b.dataset.end ? null : b.dataset.end));
+}
+for (const b of $$('[data-history]')) {
+  b.addEventListener('click', () => {
+    const c = current?.settings.history?.[b.dataset.history];
+    if (!c) return;
+    choose('accent', c, { commit: true });
+    if (target && target !== 'accent') openPicker(null);
+  });
+}
+
+const COLOUR_NAMES = { accent: 'your colour', rainbow: 'rainbow', fade: 'fade', cover: 'from the cover' };
+
+function renderColour({ settings: s, coverColour }) {
+  const m = s.colourMode;
+  // The panel's own highlights use the colour too (the start colour while fading).
+  document.documentElement.style.setProperty('--accent', m === 'fade' ? s.fadeFrom : m === 'cover' && coverColour ? coverColour : s.accent);
+  $('#colour-name').textContent = COLOUR_NAMES[m] || '';
+  for (const b of $$('[data-colour]')) b.classList.toggle('on', b.dataset.colour === m);
+  const custom = $('[data-colour="accent"]');
+  custom.style.setProperty('--col', s.accent);
+  custom.classList.toggle('open', target === 'accent');
+  for (const b of $$('[data-history]')) {
+    const c = s.history?.[b.dataset.history];
+    b.classList.toggle('empty', !c);
+    b.style.background = c || '';
+    b.title = c ? `Earlier colour ${c.toUpperCase()}` : 'Colours you pick show up here';
+  }
+  $('[data-colour="fade"]').style.background = `linear-gradient(135deg, ${s.fadeFrom} 15%, ${s.fadeTo} 85%)`;
+  const cover = $('[data-colour="cover"]');
+  cover.style.setProperty('--col', coverColour || '');
+  cover.classList.toggle('none', !coverColour);
+  $('#fade-ends').classList.toggle('hidden', m !== 'fade');
+  for (const b of $$('[data-end]')) {
+    b.querySelector('i').style.background = s[b.dataset.end];
+    b.classList.toggle('open', target === b.dataset.end);
+  }
+  $('#cover-hint').classList.toggle('hidden', m !== 'cover');
+  $('#cover-hint').textContent = coverColour ? 'Follows the cover art of whatever is playing.' : 'Shows once something with cover art plays.';
+
+  // Keep the picker on what it edits: closed when that colour is no longer in use, and in step with
+  // changes made elsewhere, but never fighting a drag in progress.
+  if ((target === 'accent' && m !== 'accent') || ((target === 'fadeFrom' || target === 'fadeTo') && m !== 'fade')) {
+    target = null; $('#picker').classList.add('hidden');
+  }
+  const value = target && s[target];
+  if (value && value !== shown) {
+    shown = value;
+    if (!dragging && document.activeElement !== $('#hex')) { hsv = hexToHsv(value); drawPicker(); }
+  }
+}
+
+function render(state) {
+  if (!state) return;
+  current = state;
+  const { settings, options, song } = state;
   if (!built) build(options);
-  document.documentElement.style.setProperty('--accent', settings.accent);
   for (const box of $$('input[data-toggle]')) box.checked = !!settings[box.dataset.toggle];
   for (const row of $$('.row.sub')) row.classList.toggle('off', !settings.showCard); // card options only matter with the card on
   for (const box of $$('[data-choose]')) {
     for (const b of box.children) b.classList.toggle('on', settings[box.dataset.choose] === b.dataset.value);
   }
-  // Colour row: the rainbow swatch, or the picked colour when not in rainbow mode.
-  const rainbowOn = settings.colourMode === 'rainbow';
-  const accent = String(settings.accent).toLowerCase(), own = !presets.includes(accent);
-  for (const b of $('[data-choose="accent"]').children) {
-    const v = b.dataset.value;
-    b.classList.toggle('on', rainbowOn ? v === 'rainbow' : v === 'custom' ? own : v.toLowerCase() === accent);
-  }
-  const custom = $('[data-value="custom"]');
-  custom.classList.toggle('filled', own);
-  custom.style.background = own ? accent : '';
-  // Keep the picker in step with colours chosen elsewhere, but never fight a drag in progress.
-  if (accent !== lastAccent) {
-    lastAccent = accent;
-    if (!dragging && document.activeElement !== $('#hex')) { hsv = hexToHsv(accent); drawPicker(); }
-  }
+  renderColour(state);
   $('#song').classList.toggle('hidden', !song);
   $('#nothing').classList.toggle('hidden', !!song);
   if (song) {

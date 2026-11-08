@@ -89,16 +89,9 @@ body.font-serif .artist { font-size: 15px; }
 .card.hidden { pointer-events: none; }
 .card.no-lyrics .panel { display: none; }
 
-/* Clear view: while the mouse is on the card, everything but the clickable parts is fully gone (not faded),
-   and those parts get small solid backings so they stay easy to see over anything. Nothing moves. */
-.now, .panel { transition: background-color .15s ease, box-shadow .15s ease; }
-.cover, .title, .artist, .progress > span, .eq, .panel > * { transition: opacity .15s ease; }
-.controls, .bar .track { transition: background-color .15s ease, box-shadow .15s ease; }
-.card.peek .now, .card.peek .panel { background-color: transparent; box-shadow: none; }
-.card.peek .cover, .card.peek .title, .card.peek .artist, .card.peek .progress > span, .card.peek .eq, .card.peek .panel > * { opacity: 0; }
-.card.peek .gear { opacity: 1; color: var(--text); background: rgba(14, 14, 18, .92); box-shadow: 0 2px 8px rgba(0, 0, 0, .35); }
-.card.peek .controls { background: rgba(14, 14, 18, .92); border-radius: 8px; box-shadow: 0 2px 8px rgba(0, 0, 0, .35); }
-.card.peek .bar .track { background: #44444c; box-shadow: 0 0 0 4px rgba(14, 14, 18, .92), 0 2px 10px 4px rgba(0, 0, 0, .3); }
+/* The card can be dragged from anywhere but its buttons and bar. */
+.now, .panel { cursor: grab; }
+body.dragging, body.dragging * { cursor: grabbing !important; }
 
 .eq { display: flex; gap: 2px; align-items: flex-end; height: 12px; margin: 0 2px 2px 0; }
 .eq i { width: 3px; background: var(--accent); border-radius: 1px; animation: eq 1s ease-in-out infinite; }
@@ -134,9 +127,12 @@ body.font-serif .artist { font-size: 15px; }
 .card.editing .edit-hint { display: flex; }
 .edit-hint small { display: block; color: var(--dim); font-size: 11px; margin-top: 2px; }
 
-/* Grid and guide lines while moving the card (24 px grid, a stronger line every 96 px). */
+/* Grid and guide lines while moving the card (24 px grid, a stronger line every 96 px).
+   Only shows around the card and fades out with distance from it; --gx/--gy is the card's centre. */
 .grid {
   position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity .25s ease;
+  --fade-mask: radial-gradient(ellipse 420px 300px at var(--gx, 50%) var(--gy, 50%), #000 35%, rgba(0, 0, 0, .55) 60%, transparent 100%);
+  -webkit-mask-image: var(--fade-mask); mask-image: var(--fade-mask);
   background-color: rgba(0, 0, 0, .18);
   background-image:
     linear-gradient(to right, rgba(255, 255, 255, .13) 1px, transparent 1px),
@@ -145,7 +141,7 @@ body.font-serif .artist { font-size: 15px; }
     linear-gradient(to bottom, rgba(255, 255, 255, .05) 1px, transparent 1px);
   background-size: 96px 96px, 96px 96px, 24px 24px, 24px 24px;
 }
-body.moving .grid { opacity: 1; }
+body.moving .grid, body.dragging .grid { opacity: 1; }
 .guide { position: absolute; pointer-events: none; display: none; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
 .guide.on { display: block; }
 .guide-x { top: 0; bottom: 0; width: 1px; }
@@ -182,6 +178,13 @@ body.font-pixel .line { font-weight: 700; letter-spacing: .02em; }
    --c is the word's colour: the picked colour, or a hue that moves along the line in rainbow mode. */
 .inner { --c: var(--accent); --c-deep: color-mix(in srgb, var(--c) 42%, #000); }
 .colour-rainbow .inner { --c: hsl(calc(var(--hue) + var(--i) * 32) 95% 66%); }
+/* Fade: each word goes from one fade colour to the other and back, a little behind the word before it. */
+.colour-fade .inner { --c: color-mix(in oklab, var(--fade-a) calc(abs(mod(var(--hue) + var(--i) * 32, 360) / 180 - 1) * 100%), var(--fade-b)); }
+/* ...and the card's colour flows with it. */
+html.colour-fade {
+  animation: hue 6s linear infinite;
+  --accent: color-mix(in oklab, var(--fade-a) calc(abs(var(--hue) / 180 - 1) * 100%), var(--fade-b));
+}
 
 /* Looks */
 .look-plain .inner { color: var(--c); text-shadow: 0 2px 10px rgba(0, 0, 0, .75), 0 0 2px rgba(0, 0, 0, .9); }

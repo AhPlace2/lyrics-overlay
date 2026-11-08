@@ -12,14 +12,18 @@ const DEFAULTS = {
   enabled: true,
   showCard: true,
   showCardLyrics: true, // the lyric lines under the card
-  seeThrough: true, // while the mouse is on the card, only its buttons stay visible
   showBig: true,
   // Big lyrics style: a look, a colour and a motion, picked separately so they combine.
   look: 'depth',
-  colourMode: 'accent', // 'accent' uses the colour picked below, 'rainbow' cycles through colours
+  // 'accent': the colour from the picker. 'rainbow': cycles through colours. 'fade': flows between fadeFrom and
+  // fadeTo. 'cover': the main colour of the playing song's cover.
+  colourMode: 'accent',
   motion: 'none',
   font: 'clean',
   accent: '#ffb648',
+  history: [], // the last two colours picked before this one
+  fadeFrom: '#ff6fae',
+  fadeTo: '#6cc8ff',
   bigPosition: 'center',
   offsets: {},
   picks: {}, // song -> the lyrics version chosen with "Try other lyrics"
@@ -27,7 +31,7 @@ const DEFAULTS = {
 };
 const LOOKS = [['depth', 'Depth (3D)'], ['glow', 'Glow'], ['outline', 'Outline'], ['plain', 'Plain']];
 const MOTIONS = [['none', 'None'], ['wave', 'Wave'], ['bounce', 'Bounce'], ['pulse', 'Pulse']];
-const COLOUR_MODES = [['accent', 'Colour'], ['rainbow', 'Rainbow']];
+const COLOUR_MODES = [['accent', 'Colour'], ['rainbow', 'Rainbow'], ['fade', 'Fade'], ['cover', 'From the cover']];
 // The single "effect" setting from before, translated into look, colour and motion.
 const OLD_EFFECTS = {
   depth: { look: 'depth', colourMode: 'accent', motion: 'none' },
@@ -37,7 +41,6 @@ const OLD_EFFECTS = {
   plain: { look: 'plain', colourMode: 'accent', motion: 'none' },
 };
 const FONTS = [['clean', 'Clean'], ['serif', 'Serif'], ['pixel', 'Pixel']];
-const ACCENTS = [['#ffb648', 'Amber'], ['#5cf2b0', 'Mint'], ['#ff6fae', 'Pink'], ['#6cc8ff', 'Sky'], ['#ff4d5e', 'Red'], ['#ffffff', 'White']];
 const POSITIONS = [['center', 'Middle of the screen'], ['bottom', 'Lower third']];
 
 let win = null, panel = null, tray = null, helper = null, quitting = false, editing = false;
@@ -126,6 +129,7 @@ function createWindow() {
     send('settings', settings);
     if (lastState) send('state', lastState);
     if (lastCover) send('cover', lastCover);
+    if (coverColour) send('cover-colour', coverColour);
     if (lastLyrics) send('lyrics', lastLyrics);
     if (failedHotkeys.length) send('toast', `These shortcuts are taken by another app: ${failedHotkeys.join(', ')}`);
     win.showInactive();
@@ -180,8 +184,7 @@ function onHelperLine(line) {
   let msg;
   try { msg = JSON.parse(line); } catch { return; }
   if (msg.type === 'cover') {
-    lastCover = msg;
-    send('cover', msg);
+    setCover(msg);
     return;
   }
   if (msg.type === 'control') {
@@ -195,6 +198,64 @@ function onHelperLine(line) {
   if (changed) { lookUp(msg); buildMenu(); scheduleCoverLookup(msg); }
 }
 
+function setCover(cover) {
+  lastCover = cover;
+  send('cover', cover);
+  let colour = null;
+  try { colour = colourOfCover(cover.data); } catch (err) { console.error('Could not read the cover colour:', err.message); }
+  coverColour = colour ? { key: cover.key, colour } : null;
+  if (coverColour) send('cover-colour', coverColour);
+  refreshPanel();
+}
+
+/* ---------- The cover's colour, for the "From the cover" colour ----------
+   An average of the cover that counts its lively pixels most, so a bright patch on a dark cover beats the murky
+   mean, then made light and saturated enough to read well as text over anything. */
+let coverColour = null; // { key, colour }
+function colourOfCover(dataUrl) {
+  const img = nativeImage.createFromDataURL(dataUrl);
+  if (img.isEmpty()) return null;
+  const px = img.resize({ width: 24, height: 24, quality: 'good' }).toBitmap(); // BGRA
+  let r = 0, g = 0, b = 0, total = 0;
+  for (let i = 0; i + 3 < px.length; i += 4) {
+    const B = px[i], G = px[i + 1], R = px[i + 2];
+    const max = Math.max(R, G, B), sat = max ? (max - Math.min(R, G, B)) / max : 0;
+    const weight = .04 + sat * sat * (max / 255); // grey and dark pixels count for little
+    r += R * weight; g += G * weight; b += B * weight; total += weight;
+  }
+  return total ? readableColour(r / total, g / total, b / total) : null;
+}
+
+function readableColour(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  let h = 0, s = 0, l = (max + min) / 2;
+  if (d) {
+    s = d / (1 - Math.abs(2 * l - 1));
+    h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    h = (h * 60 + 360) % 360;
+  }
+  if (s > .12) s = Math.max(s, .65); // a real colour: make it vivid; a grey cover stays a light grey
+  l = Math.min(.8, Math.max(.64, l));
+  const k = (n) => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
+  const f = (n) => Math.round((l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1))) * 255);
+  return '#' + [f(0), f(8), f(4)].map((x) => x.toString(16).padStart(2, '0')).join('');
+}
+
+/* Picker colours. A colour counts as picked (and the one before it goes into the history) when the picker
+   is let go of; the many colours sent while dragging only show it. */
+let committedAccent = null;
+function chooseAccent(hex, commit) {
+  const patch = { accent: hex, colourMode: 'accent' };
+  if (commit) {
+    const before = committedAccent;
+    const rest = (settings.history || []).filter((c) => c !== hex && c !== before);
+    patch.history = (before && before !== hex ? [before, ...rest] : rest).slice(0, 2);
+    committedAccent = hex;
+  }
+  update(patch);
+}
+
 /** If the player shares no cover within a few seconds, look one up online. */
 function scheduleCoverLookup(state) {
   clearTimeout(coverTimer);
@@ -202,7 +263,7 @@ function scheduleCoverLookup(state) {
   coverTimer = setTimeout(async () => {
     if (!missing()) return;
     const data = await findCover(state).catch((err) => { console.error('Cover lookup failed:', err.message); return null; });
-    if (data && missing()) { lastCover = { type: 'cover', key: state.key, data }; send('cover', lastCover); }
+    if (data && missing()) setCover({ type: 'cover', key: state.key, data });
   }, 5000);
 }
 
@@ -365,7 +426,8 @@ function panelState() {
   const lyrics = s && lastLyrics?.key === s.key ? lastLyrics : null;
   return {
     settings,
-    options: { looks: LOOKS, motions: MOTIONS, fonts: FONTS, accents: ACCENTS, positions: POSITIONS },
+    options: { looks: LOOKS, motions: MOTIONS, fonts: FONTS, positions: POSITIONS },
+    coverColour: coverColour?.colour || null,
     song: s && {
       title: s.title || 'Unknown title', artist: s.artist || '', lead: songLead(),
       picked: !!settings.picks[songKey(s)],
@@ -421,18 +483,18 @@ function sizePanel(height) {
 }
 
 function onPanelAction(name, value) {
-  const choices = { look: LOOKS, motion: MOTIONS, colourMode: COLOUR_MODES, font: FONTS, accent: ACCENTS, bigPosition: POSITIONS };
+  const choices = { look: LOOKS, motion: MOTIONS, colourMode: COLOUR_MODES, font: FONTS, bigPosition: POSITIONS };
+  const isHex = (v) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
   switch (name) {
     case 'toggle':
       if (value === 'enabled') toggleEnabled();
-      else if (['showCard', 'showCardLyrics', 'seeThrough', 'showBig'].includes(value)) update({ [value]: !settings[value] });
+      else if (['showCard', 'showCardLyrics', 'showBig'].includes(value)) update({ [value]: !settings[value] });
       break;
     case 'choose':
-      // Colours can also be any colour from the picker, as #rrggbb.
-      if (value?.key === 'accent' && /^#[0-9a-f]{6}$/i.test(value.value)) value = { key: 'accent', value: value.value.toLowerCase() };
-      else if (!choices[value?.key]?.some(([v]) => v === value.value)) break;
-      // Picking a colour swatch also leaves rainbow mode, so the pick shows straight away.
-      update(value.key === 'accent' ? { accent: value.value, colourMode: 'accent' } : { [value.key]: value.value });
+      // Colours from the picker come as #rrggbb, and switch to the mode they belong to so they show straight away.
+      if (value?.key === 'accent' && isHex(value.value)) chooseAccent(value.value.toLowerCase(), !!value.commit);
+      else if ((value?.key === 'fadeFrom' || value?.key === 'fadeTo') && isHex(value.value)) update({ [value.key]: value.value.toLowerCase(), colourMode: 'fade' });
+      else if (choices[value?.key]?.some(([v]) => v === value.value)) update({ [value.key]: value.value });
       break;
     case 'earlier': nudge(.25); break;
     case 'later': nudge(-.25); break;
@@ -481,6 +543,7 @@ function registerHotkeys() {
 /* ---------- Startup ---------- */
 function start() {
   settings = loadSettings();
+  committedAccent = settings.accent;
   app.setAppUserModelId('Lyrics Overlay');
   createWindow();
   tray = new Tray(trayIcon());

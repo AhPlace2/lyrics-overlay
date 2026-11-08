@@ -26,7 +26,6 @@
         <label class="row"><span>Lyrics <kbd>Ctrl+Alt+L</kbd></span><input type="checkbox" data-toggle="enabled"></label>
         <label class="row"><span>Now playing card</span><input type="checkbox" data-toggle="showCard"></label>
         <label class="row sub"><span>Lyrics under the card</span><input type="checkbox" data-toggle="showCardLyrics"></label>
-        <label class="row sub"><span>Clear on hover (buttons stay)</span><input type="checkbox" data-toggle="seeThrough"></label>
         <label class="row"><span>Big floating lyrics</span><input type="checkbox" data-toggle="showBig"></label>
         <div class="field"><span>Big lyrics position</span><div class="chips" data-choose="bigPosition"></div></div>
       </section>
@@ -36,8 +35,21 @@
         <div class="field"><span>Motion</span><div class="chips" data-choose="motion"></div></div>
         <div class="field"><span>Font</span><div class="chips" data-choose="font"></div></div>
         <div class="field">
-          <span>Colour</span>
-          <div class="swatches" data-choose="accent"></div>
+          <span>Colour <em id="colour-name"></em></span>
+          <div class="swatches">
+            <button type="button" class="custom" data-colour="accent" title="Your colour (click again to change it)"></button>
+            <button type="button" class="rainbow" data-colour="rainbow" title="Rainbow"></button>
+            <button type="button" class="history" data-history="0"></button>
+            <button type="button" class="history" data-history="1"></button>
+            <button type="button" class="fade" data-colour="fade" title="Fade between two colours"></button>
+            <button type="button" class="cover" data-colour="cover" title="From the cover art"></button>
+          </div>
+          <div id="fade-ends" class="fade-ends hidden">
+            <button type="button" data-end="fadeFrom"><i></i>Start</button>
+            <span class="arrow">→</span>
+            <button type="button" data-end="fadeTo"><i></i>End</button>
+          </div>
+          <p id="cover-hint" class="hint hidden"></p>
           <div id="picker" class="picker hidden">
             <div id="sv" class="sv"><i id="sv-knob"></i></div>
             <div id="hue" class="hue"><i id="hue-knob"></i></div>

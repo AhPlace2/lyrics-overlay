@@ -3,7 +3,7 @@
 Synced lyrics on top of your Windows desktop for whatever is playing: Spotify, YouTube in Chrome, Firefox or Brave, and other players that show up in Windows' media controls.
 
 - A now playing card with the cover, title and progress, play/pause, previous/next, a progress bar you can drag to jump, and the current lyric lines
-- Big floating lyrics that type in word by word, styled by mixing a look (Depth, Glow, Outline, Plain), a colour (preset, rainbow or any colour from the picker), and a motion (Wave, Bounce, Pulse)
+- Big floating lyrics that type in word by word, styled by mixing a look (Depth, Glow, Outline, Plain), a colour (any colour from the picker, your last two picks, rainbow, a fade between two colours, or the cover art's colour), and a motion (Wave, Bounce, Pulse)
 - Lyrics from [LRCLIB](https://lrclib.net), with other versions from LRCLIB and NetEase when the timing is off
 - Per-song timing fixes and lyric choices, saved for next time
 - Lyrics found once are saved on disk, so a song loads instantly next time, even offline

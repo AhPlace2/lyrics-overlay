@@ -92,23 +92,44 @@ input[type=checkbox]:checked::after { transform: translateX(14px); background: #
 .chips button.on { background: var(--accent); color: #111; }
 .buttons button.quiet, .foot button.quiet { background: none; color: var(--dim); }
 .buttons button.quiet:hover, .foot button.quiet:hover { color: var(--text); background: rgba(255, 255, 255, .08); }
+.foot button[data-act="quit"]:hover { color: #fff; background: #e5484d; }
 button:disabled { opacity: .35; cursor: default; pointer-events: none; }
 .chips .font-serif { font: italic 15px "Instrument Serif", Georgia, serif; padding: 4px 10px; }
 .chips .font-pixel { font: 600 12px "Pixelify Sans", Consolas, monospace; }
 
-.swatches { display: flex; gap: 8px; padding: 2px 0; }
+.swatches { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
 .swatches button {
-  width: 22px; height: 22px; border-radius: 50%; border: 0; cursor: pointer; padding: 0;
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .3); transition: transform .15s;
+  position: relative; width: 22px; height: 22px; border-radius: 50%; border: 0; cursor: pointer; padding: 0; flex: none;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .3); transition: transform .15s, box-shadow .15s;
 }
 .swatches button:hover { transform: scale(1.12); }
-.swatches .rainbow { background: conic-gradient(#ff4d5e, #ffb648, #f5f25c, #5cf2b0, #6cc8ff, #b47cff, #ff6fae, #ff4d5e); }
 .swatches button.on { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px #fff; }
-/* "Your own colour" swatch: a plus until a colour of your own is picked, then that colour. */
-.swatches .custom { position: relative; background: rgba(255, 255, 255, .1); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .25); }
-.swatches .custom::after { content: "+"; position: absolute; inset: 0; display: grid; place-items: center; font: 600 15px/1 "Inter", sans-serif; color: var(--text); }
-.swatches .custom.filled::after { content: ""; }
+/* Your colour: a dot of it inside a hue ring, so it reads as "pick any colour". */
+.swatches .custom { background: radial-gradient(circle, var(--col, #fff) 0 50%, transparent 53%), conic-gradient(#ff4d5e, #ffb648, #f5f25c, #5cf2b0, #6cc8ff, #b47cff, #ff6fae, #ff4d5e); }
 .swatches .custom.open:not(.on) { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--dim); }
+.swatches .rainbow { background: conic-gradient(#ff4d5e, #ffb648, #f5f25c, #5cf2b0, #6cc8ff, #b47cff, #ff6fae, #ff4d5e); }
+/* The last two colours you picked: a little smaller, set apart from the rest. */
+.swatches .history { width: 18px; height: 18px; }
+.swatches .history[data-history="0"] { margin-left: 6px; }
+.swatches .history.empty { background: none; box-shadow: none; border: 1.5px dashed rgba(255, 255, 255, .22); cursor: default; }
+.swatches .history.empty:hover { transform: none; }
+.swatches .fade { margin-left: 6px; }
+.swatches .cover { background: var(--col, rgba(255, 255, 255, .1)); }
+.swatches .cover::after { content: "♪"; position: absolute; inset: 0; display: grid; place-items: center; font: 700 12px/1 "Segoe UI Symbol", "Inter", sans-serif; color: rgba(0, 0, 0, .6); }
+.swatches .cover.none { background: rgba(255, 255, 255, .1); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .25); }
+.swatches .cover.none.on { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px #fff; }
+.swatches .cover.none::after { color: var(--dim); }
+
+/* The two ends of the fade; clicking one opens the picker on it. */
+.fade-ends { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.fade-ends button {
+  display: flex; align-items: center; gap: 6px; border: 0; border-radius: 7px; padding: 5px 10px 5px 6px; cursor: pointer;
+  font: 600 12px "Inter", sans-serif; color: var(--text); background: rgba(255, 255, 255, .08); transition: background .15s;
+}
+.fade-ends button:hover { background: rgba(255, 255, 255, .15); }
+.fade-ends button.open { box-shadow: inset 0 0 0 1px var(--dim); }
+.fade-ends i { width: 16px; height: 16px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .3); }
+.fade-ends .arrow { color: var(--dim); }
 
 /* Colour picker: saturation/brightness square, hue bar, colour code. */
 .picker { margin-top: 10px; display: grid; gap: 8px; }
