@@ -2,6 +2,7 @@
 const { app, BrowserWindow, screen, Tray, Menu, nativeImage, globalShortcut, ipcMain } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
+const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const readline = require('node:readline');
 const { findLyrics, findVersions, sameTiming } = require('./lyrics');
@@ -178,6 +179,33 @@ function scheduleCoverLookup(state) {
   }, 5000);
 }
 
+/* Lyrics found once are saved on disk, so the song loads instantly next time, even offline. */
+const SAVED_LYRICS_VERSION = 1;
+const savedLyricsFile = (state) =>
+  path.join(app.getPath('userData'), 'lyrics-cache', `${crypto.createHash('sha1').update(songKey(state)).digest('hex')}.json`);
+
+function loadSavedLyrics(state) {
+  try {
+    const saved = JSON.parse(fs.readFileSync(savedLyricsFile(state), 'utf8'));
+    const pick = settings.picks[songKey(state)];
+    // Only use it when it is the version this song should show now: the picked one, or the first one.
+    if (saved.v !== SAVED_LYRICS_VERSION || saved.key !== songKey(state)) return null;
+    if (pick ? saved.value.pick !== pick : saved.chosen) return null;
+    return saved.value;
+  } catch {
+    return null;
+  }
+}
+
+function saveLyrics(state, value) {
+  if (value.status !== 'found') return;
+  const key = songKey(state), file = savedLyricsFile(state);
+  const data = JSON.stringify({ v: SAVED_LYRICS_VERSION, key, chosen: !!settings.picks[key], value });
+  fs.promises.mkdir(path.dirname(file), { recursive: true })
+    .then(() => fs.promises.writeFile(file, data))
+    .catch((err) => console.error('Saving lyrics failed:', err.message));
+}
+
 async function lookUp(state, force = false) {
   const key = state.key;
   lookingFor = key;
@@ -188,6 +216,11 @@ async function lookUp(state, force = false) {
   };
   if (!state.title) return publish({ status: 'none', lines: [] });
   if (!force && lyricsCache.has(key)) return publish(lyricsCache.get(key));
+  const stored = !force && loadSavedLyrics(state);
+  if (stored) {
+    lyricsCache.set(key, stored);
+    return publish(stored);
+  }
   publish({ status: 'loading', lines: [] });
   try {
     let result = await findLyrics(trackOf(state));
@@ -198,6 +231,7 @@ async function lookUp(state, force = false) {
       ? { status: 'found', lines: result.lines, source: result.source, pick: result.pick, provider: result.provider }
       : { status: result?.plainOnly ? 'unsynced' : 'none', lines: [] };
     lyricsCache.set(key, value);
+    saveLyrics(state, value);
     publish(value);
   } catch (err) {
     console.error('Lyrics lookup failed:', err.message);
@@ -235,6 +269,7 @@ async function tryOtherLyrics(step = 1) {
     const key = songKey(state), offsets = { ...settings.offsets };
     delete offsets[key];
     update({ picks: { ...settings.picks, [key]: next.pick }, offsets });
+    saveLyrics(state, value); // after the pick is stored, so the file is marked as the chosen version
     send('toast', `Lyrics version ${versions.indexOf(next) + 1} of ${versions.length} (${next.provider})`);
   } catch (err) {
     console.error('Other lyrics failed:', err.message);

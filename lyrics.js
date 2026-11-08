@@ -128,6 +128,15 @@ function titleOnlyMatches(results, title, duration) {
     .sort((a, b) => Math.abs(a.duration - duration) - Math.abs(b.duration - duration));
 }
 
+/** The same readings with artist and title swapped, for titles written "Song - Artist" instead of "Artist - Song". */
+function swapped(list) {
+  const have = new Set(list.map((c) => `${c.artist}|${c.title}`.toLowerCase()));
+  return list
+    .filter((c) => c.artist && !/\s[-–—]\s/.test(c.title)) // an unsplit "A - B" title makes no sense as an artist
+    .map((c) => ({ artist: c.title, title: c.artist }))
+    .filter((c) => !have.has(`${c.artist}|${c.title}`.toLowerCase()));
+}
+
 const found = (r) => ({ lines: delayEarlyStarts(parseLRC(r.syncedLyrics)), source: `${r.artistName} – ${r.trackName}`, pick: `lrclib:${r.id}`, provider: 'LRCLIB' });
 
 /**
@@ -152,6 +161,14 @@ async function findLyrics(track) {
     const pick = best(await request('/search', { q: `${list[0].artist} ${list[0].title}`.trim() }), list[0], duration);
     if (pick) return found(pick);
   }
+  for (const c of swapped(list)) {
+    if (duration) {
+      const exact = await request('/get', { track_name: c.title, artist_name: c.artist, duration: Math.round(duration) });
+      if (exact?.syncedLyrics) return found(exact);
+    }
+    const pick = best(await request('/search', { track_name: c.title, artist_name: c.artist }), c, duration);
+    if (pick) return found(pick);
+  }
   if (duration) {
     for (const title of new Set(list.map((c) => c.title))) {
       const [pick] = titleOnlyMatches(await request('/search', { q: title }), title, duration);
@@ -173,7 +190,12 @@ function sameTiming(a, b) {
 
 async function lrclibVersions(track, duration) {
   const out = [];
-  for (const c of candidates(track)) {
+  const list = candidates(track);
+  for (const c of swapped(list)) {
+    const results = (await request('/search', { track_name: c.title, artist_name: c.artist })) || [];
+    for (const r of results) if (score(r, c, duration) > 4) out.push({ r, s: score(r, c, duration) - 1 });
+  }
+  for (const c of list) {
     const params = c.artist ? { track_name: c.title, artist_name: c.artist } : { q: c.title };
     const results = (await request('/search', params)) || [];
     for (const r of results) if (score(r, c, duration) > 4) out.push({ r, s: score(r, c, duration) });
