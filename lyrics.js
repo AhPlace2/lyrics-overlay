@@ -123,9 +123,14 @@ function delayEarlyStarts(lines) {
  */
 function titleOnlyMatches(results, title, duration) {
   if (!(duration > 0)) return [];
+  // Entries are sometimes filed as "Song" on an album called "Song (Remix)", so the album counts too,
+  // and so does the title without its brackets. Fuller matches come first, then the closest length.
+  const bare = (s = '') => s.replace(/\s*[([][^)\]]*[)\]]/g, '').trim();
+  const full = (r) => Math.max(similarity(r.trackName, title), similarity(r.albumName || '', title));
   return (results || [])
-    .filter((r) => r.syncedLyrics && r.duration && similarity(r.trackName, title) >= .8 && Math.abs(r.duration - duration) <= 3)
-    .sort((a, b) => Math.abs(a.duration - duration) - Math.abs(b.duration - duration));
+    .filter((r) => r.syncedLyrics && r.duration && Math.abs(r.duration - duration) <= 3
+      && (full(r) >= .8 || similarity(bare(r.trackName), bare(title)) >= .8))
+    .sort((a, b) => full(b) - full(a) || Math.abs(a.duration - duration) - Math.abs(b.duration - duration));
 }
 
 /** The same readings with artist and title swapped, for titles written "Song - Artist" instead of "Artist - Song". */
