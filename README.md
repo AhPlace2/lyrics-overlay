@@ -76,17 +76,21 @@ A click-through window: everything except the card lets your clicks pass to the 
 
 > Needs **Windows 10 or 11**.
 
-### Installer
+### Download
+
+Grab **`Lyrics-Overlay-Setup-<version>.exe`** from the [latest release](https://github.com/AhPlace2/lyrics-overlay/releases/latest) and run it. It installs for the current user, adds Start menu and desktop shortcuts, and can be removed from Windows' installed apps.
+
+> [!NOTE]
+> The installer isn't code-signed, so Windows shows *"Windows protected your PC"*. Click **More info → Run anyway**.
+
+### Build the installer yourself
 
 ```bash
 npm install
 npm run dist
 ```
 
-This makes `dist\Lyrics-Overlay-Setup-<version>.exe`. It installs for the current user, adds Start menu and desktop shortcuts, and can be removed from Windows' installed apps.
-
-> [!NOTE]
-> The installer isn't code-signed, so Windows shows *"Windows protected your PC"*. Click **More info → Run anyway**.
+This makes the same installer in `dist\`.
 
 ### Run from source
 
