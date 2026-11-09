@@ -122,8 +122,9 @@ function createWindow() {
   });
   fitToScreen();
   win.setAlwaysOnTop(true, 'screen-saver');
-  // Clicks pass through to the desktop, but the page still sees the pointer, so it can tell when it is over the gear.
-  win.setIgnoreMouseEvents(true, { forward: true });
+  // Clicks pass through to the desktop, except over the card (see "Click-through" below).
+  win.setIgnoreMouseEvents(true);
+  setInterval(updateCatching, 33);
   win.loadFile(path.join(__dirname, 'overlay.html'));
   win.webContents.on('did-finish-load', () => {
     send('settings', settings);
@@ -139,9 +140,33 @@ function createWindow() {
   screen.on('display-removed', fitToScreen);
 }
 
+/* ---------- Click-through ----------
+   The overlay lets clicks through to the desktop, except over the card. Electron can forward every mouse move to
+   the page so it can tell when the pointer is on the card, but with a fast gaming mouse that is thousands of
+   messages a second, which kept the app busy. Instead main looks where the pointer is 30 times a second and
+   catches the mouse only while it is over the card (the page reports where the card is, or null when the card
+   can't show). While caught, the page gets the mouse as usual; it holds on during drags and seeks. */
+let cardRect = null, pageHold = false, catching = false;
+
+function pointerOverCard() {
+  if (!cardRect || !win || win.isDestroyed()) return false;
+  const p = screen.getCursorScreenPoint(), b = win.getBounds();
+  const x = p.x - b.x, y = p.y - b.y;
+  return x >= cardRect.x && x < cardRect.x + cardRect.width && y >= cardRect.y && y < cardRect.y + cardRect.height;
+}
+
+function updateCatching() {
+  if (!win || win.isDestroyed()) return;
+  const want = editing || pageHold || pointerOverCard();
+  if (want === catching) return;
+  catching = want;
+  win.setIgnoreMouseEvents(!want);
+  if (!want) send('pointer-left');
+}
+
 function setEditing(on) {
   editing = on;
-  win.setIgnoreMouseEvents(!on, { forward: true });
+  updateCatching();
   send('edit', on);
   buildMenu();
 }
@@ -559,7 +584,11 @@ function start() {
   ipcMain.on('edit-done', () => setEditing(false));
   ipcMain.on('open-settings', (_e, at) => togglePanel(at));
   ipcMain.on('control', (e, msg) => { if (win && e.sender === win.webContents) control(msg); });
-  ipcMain.on('ui-hover', (_e, on) => { if (!editing) win.setIgnoreMouseEvents(!on, { forward: true }); });
+  ipcMain.on('ui-hover', (_e, on) => { pageHold = !!on; updateCatching(); });
+  ipcMain.on('card-rect', (_e, r) => {
+    cardRect = r && [r.x, r.y, r.width, r.height].every(Number.isFinite) ? r : null;
+    updateCatching();
+  });
   ipcMain.on('panel-action', (e, msg) => { if (panel && e.sender === panel.webContents) onPanelAction(msg?.name, msg?.value); });
   ipcMain.on('set-offset', (_e, msg) => {
     if (typeof msg?.key === 'string' && Number.isFinite(msg.lead)) {

@@ -41,8 +41,8 @@ function onState(s) {
   // Just after a jump, the player may still report the old time; wait until it catches up (or gives up).
   const held = seekHold && seekHold.key === s.key && now < seekHold.until && Math.abs(reported - seekHold.to) > 2;
   if (seekHold && !held) seekHold = null;
-  if (!held && !seeking && (isNew || nowPlaying !== playing || drift > .35)) { anchorPos = reported; anchorMs = now; }
-  if (held && nowPlaying !== playing) { anchorPos = songTime(); anchorMs = now; }
+  if (!held && !seeking && (isNew || nowPlaying !== playing || drift > .35)) { anchorPos = reported; anchorMs = now; anchorVersion++; }
+  if (held && nowPlaying !== playing) { anchorPos = songTime(); anchorMs = now; anchorVersion++; }
   if (!nowPlaying && playing) idleSince = now;
   playing = nowPlaying;
   if (isNew) {
@@ -52,10 +52,11 @@ function onState(s) {
     card.classList.remove('pop'); void card.offsetWidth; card.classList.add('pop');
   }
   track = s;
-  $('#title').textContent = s.title || 'Unknown title';
-  $('#artist').textContent = s.artist || '';
+  setText($('#title'), s.title || 'Unknown title');
+  setText($('#artist'), s.artist || '');
   $('#eq').classList.toggle('paused', !playing);
   showControls(s);
+  update();
 }
 
 /* ---------- Lyrics ---------- */
@@ -84,7 +85,8 @@ function showBigLine(text, duration, elapsed = 0) {
   words.forEach((w, i) => {
     const word = document.createElement('span');
     word.className = 'word';
-    word.style.animationDelay = `${Math.max(-.42, i * step - elapsed).toFixed(3)}s`;
+    // Whole 60 fps frames, so every word's steps land on the same frames.
+    word.style.animationDelay = `${(Math.round(Math.max(-.42, i * step - elapsed) * 60) / 60).toFixed(4)}s`;
     const inner = document.createElement('span');
     inner.className = 'inner';
     inner.style.setProperty('--i', i);
@@ -106,14 +108,14 @@ function renderPanel(lines, idx, t) {
 
   if (sig) {
     if (sig !== panelSig) { panel.innerHTML = html; panelSig = sig; }
-    return;
+    return false;
   }
 
   const cur = lines[idx];
   const nextI = nextTextIndex(lines, idx + 1);
   const gap = nextI >= 0 ? lines[nextI].t - t : Infinity;
   const instrumental = (!cur || !cur.text) && gap > 2.5 && gap !== Infinity;
-  sig = instrumental ? `gap:${nextI}:${Math.min(3, Math.floor(3 - gap / Math.max(1, (lines[nextI].t - (cur ? cur.t : 0)) / 3)))}` : `line:${idx}`;
+  sig = instrumental ? `gap:${nextI}:${Math.min(3, Math.floor(3 - gap / Math.max(1, (lines[nextI].t - (cur ? cur.t : 0)) / 3)))}` : `line:${idx}:${anchorVersion}:${playing}`;
   if (sig !== panelSig) {
     panelSig = sig;
     panel.replaceChildren();
@@ -128,7 +130,13 @@ function renderPanel(lines, idx, t) {
       add('next', lines[nextI].text);
     } else if (cur && cur.text) {
       if (prevI >= 0) add('prev', lines[prevI].text);
-      add('cur', cur.text);
+      // The underline runs as a CSS animation over the line's length, starting from where we are in it,
+      // in 60 steps a second (see the note on stepped animations in overlay.css).
+      const el = add('cur', cur.text), end = lines[idx + 1] ? lines[idx + 1].t : cur.t + 4;
+      const dur = Math.max(.1, end - cur.t);
+      el.style.setProperty('--dur', `${dur.toFixed(2)}s`);
+      el.style.setProperty('--steps', Math.max(1, Math.round(dur * 60)));
+      el.style.setProperty('--delay', `${(cur.t - t).toFixed(2)}s`);
       let shown = 0;
       for (let i = idx + 1; i < lines.length && shown < 2; i++) if (lines[i].text) { add('next', lines[i].text); shown++; }
     } else if (nextI >= 0) {
@@ -140,17 +148,14 @@ function renderPanel(lines, idx, t) {
     const lit = Math.min(3, Math.floor(((span - gap) / span) * 4));
     panel.querySelectorAll('.dots i').forEach((d, i) => d.classList.toggle('on', i < lit));
   }
-  const curEl = panel.querySelector('.cur');
-  if (curEl && cur) {
-    const end = lines[idx + 1] ? lines[idx + 1].t : cur.t + 4;
-    curEl.style.setProperty('--p', Math.min(1, Math.max(0, (t - cur.t) / Math.max(.1, end - cur.t))).toFixed(3));
-  }
+  return instrumental;
 }
 
 /* ---------- Catching the mouse on the card ----------
-   The overlay lets clicks through to the desktop. While the pointer is on the card, it asks to catch them
-   instead, so the buttons work and the card can be dragged out of the way. A drag (of the card or on the
-   progress bar) keeps catching them until it ends, even when the pointer runs ahead of the card. */
+   The overlay lets clicks through to the desktop. Main catches the mouse while the pointer is over the card (we
+   tell it where the card is), so the buttons work and the card can be dragged out of the way. While caught we
+   see the mouse as usual; "ui-hover" tells main to hold on (during a drag of the card or on the progress bar,
+   even when the pointer runs ahead of the card) or that the pointer has left. */
 const gear = $('#gear'), bar = $('#bar'), playBtn = $('#play');
 let overUi = false, seeking = null, drag = null;
 function setOverUi(on) {
@@ -170,9 +175,23 @@ let mouseOnCard = false;
 addEventListener('mousemove', (e) => {
   setOverUi(!editing && clickable(e.target));
   const r = card.getBoundingClientRect();
-  mouseOnCard = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+  const on = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+  if (on !== mouseOnCard) { mouseOnCard = on; update(); }
 });
-document.addEventListener('mouseleave', () => { mouseOnCard = false; setOverUi(false); });
+document.addEventListener('mouseleave', () => { mouseOnCard = false; setOverUi(false); update(); });
+// Main stopped catching the mouse (the pointer left the card without us seeing it go).
+api.on('pointer-left', () => { if (mouseOnCard) { mouseOnCard = false; update(); } });
+
+/** Tells main where the card is, or null while it can't show, so the mouse is only caught over a card that
+    can appear. Sent only when it changes. */
+let sentRect = '';
+function sendCardRect() {
+  const can = editing || (settings.enabled && settings.showCard && !!track);
+  const r = can ? { x: card.offsetLeft, y: card.offsetTop, width: card.offsetWidth, height: card.offsetHeight } : null;
+  const key = JSON.stringify(r);
+  if (key !== sentRect) { sentRect = key; api.send('card-rect', r); }
+}
+new ResizeObserver(() => sendCardRect()).observe(card);
 
 /* ---------- Playback controls ---------- */
 const sendControl = (cmd, extra = {}) => track && api.send('control', { cmd, key: track.key, ...extra });
@@ -207,48 +226,76 @@ bar.addEventListener('pointerdown', (e) => {
   bar.setPointerCapture(e.pointerId);
   bar.classList.add('dragging');
   setOverUi(true);
+  update();
 });
-bar.addEventListener('pointermove', (e) => { if (seeking && track?.key === seeking.key) seeking.to = barTime(e); });
+bar.addEventListener('pointermove', (e) => { if (seeking && track?.key === seeking.key) { seeking.to = barTime(e); update(); } });
 const endSeek = (e, cancelled) => {
   if (!seeking) return;
   const { key, to } = seeking;
   seeking = null;
   bar.classList.remove('dragging');
   setOverUi(clickable(document.elementFromPoint(e.clientX, e.clientY)));
-  if (cancelled || track?.key !== key) return;
+  if (cancelled || track?.key !== key) return update();
   sendControl('seek', { to });
   // Move there now; the player's own report can lag behind for a moment, so don't let it pull us back.
-  anchorPos = to; anchorMs = Date.now();
+  anchorPos = to; anchorMs = Date.now(); anchorVersion++;
+  update();
   seekHold = { key, to, until: Date.now() + 2500 };
 };
 bar.addEventListener('pointerup', (e) => endSeek(e, false));
 bar.addEventListener('pointercancel', (e) => endSeek(e, true));
 bar.addEventListener('lostpointercapture', (e) => endSeek(e, true));
 
-/* ---------- Frame loop ---------- */
-function frame() {
+/* ---------- Updating the screen ----------
+   Nothing is redrawn every frame. update() puts on screen what belongs to this moment, works out when something
+   will next change (the next lyric line, the clock's next second), and sleeps until then. Anything that changes
+   what should show (the player, lyrics, settings, the mouse) calls update() straight away. Movement in between
+   (the progress bar's glide, the current line's underline) is left to CSS. */
+let updateTimer = null, anchorVersion = 0, lastBarTime = null;
+const setText = (el, text) => { if (el.textContent !== text) el.textContent = text; };
+
+function update() {
+  clearTimeout(updateTimer);
+  updateTimer = setTimeout(update, Math.max(16, Math.min(1000, render())));
+}
+
+/** Shows the progress bar at `pos` (0..1). It glides there over the next second, unless it jumped. */
+function showBarPos(pos, t) {
+  const jumped = lastBarTime === null || !!seeking || Math.abs(t - lastBarTime) > 1.6;
+  bar.classList.toggle('jump', jumped);
+  if (jumped) void bar.offsetWidth; // take the jump without the glide
+  const value = pos.toFixed(4);
+  if (bar.style.getPropertyValue('--pos') !== value) bar.style.setProperty('--pos', value);
+  lastBarTime = t;
+}
+
+/** Puts this moment on screen; returns how many ms until something next needs changing. */
+function render() {
   const now = Date.now();
   const recent = playing || now - idleSince < 20000;
   const showCard = editing || (settings.enabled && settings.showCard && track && (recent || mouseOnCard || seeking));
   card.classList.toggle('hidden', !showCard);
+  card.classList.toggle('paused', !playing || !!seeking);
   if (!showCard && !seeking && !drag) setOverUi(false);
+  let wait = 1000;
 
   if (track) {
     const t = songTime(), length = track.end - track.start;
-    $('#elapsed').textContent = fmt(t);
-    $('#length').textContent = length > 0 ? fmt(length) : '–:––';
-    const pct = length > 0 ? `${Math.min(100, (t / length) * 100)}%` : '0%';
-    $('#fill').style.width = pct;
-    $('#knob').style.left = pct;
+    setText($('#elapsed'), fmt(t));
+    setText($('#length'), length > 0 ? fmt(length) : '–:––');
+    showBarPos(length > 0 ? Math.min(1, t / length) : 0, t);
+    if (playing && !seeking) wait = (1 - (t % 1)) * 1000 + 5; // the clock's next second
 
     const ready = lyrics.key === track.key && lyrics.status === 'found';
     const lines = ready ? lyrics.lines : [];
     const lt = t + songLead();
     const idx = lineIndex(lines, lt);
-    renderPanel(lines, idx, lt);
+    if (playing && !seeking && lines[idx + 1]) wait = Math.min(wait, (lines[idx + 1].t - lt) * 1000 + 5); // the next line
+    if (renderPanel(lines, idx, lt) && playing) wait = Math.min(wait, 250); // instrumental dots light up in steps
 
     const wantBig = settings.enabled && settings.showBig && ready;
-    big.classList.toggle('fade', !wantBig || (!playing && now - idleSince > 4000));
+    const fadeBig = !wantBig || (!playing && now - idleSince > 4000);
+    big.classList.toggle('fade', fadeBig);
     if (wantBig && (idx !== shownIdx || track.key !== shownKey)) {
       const cur = lines[idx];
       const end = lines[idx + 1] ? lines[idx + 1].t : (cur ? cur.t + 4 : 0);
@@ -258,15 +305,18 @@ function frame() {
     }
     if (!wantBig && shownIdx !== null) { showBigLine('', 0); shownIdx = null; }
   } else {
+    big.classList.add('fade');
     if (shownIdx !== null) { showBigLine('', 0); shownIdx = null; }
     if (editing) {
-      $('#title').textContent = 'Nothing playing';
-      $('#artist').textContent = 'The card shows up here';
-      panel.innerHTML = '<div class="note">Lyrics appear under the card</div>';
-      panelSig = 'edit';
+      setText($('#title'), 'Nothing playing');
+      setText($('#artist'), 'The card shows up here');
+      if (panelSig !== 'edit') { panel.innerHTML = '<div class="note">Lyrics appear under the card</div>'; panelSig = 'edit'; }
     }
   }
-  requestAnimationFrame(frame);
+  sendCardRect();
+  // Nothing on screen: stop every animation, so an idle overlay costs nothing.
+  document.documentElement.classList.toggle('idle', card.classList.contains('hidden') && big.classList.contains('fade') && !big.querySelector('.line.leaving'));
+  return wait;
 }
 
 /* ---------- Colour ----------
@@ -291,6 +341,8 @@ function applySettings(s) {
   big.className = `big look-${s.look} colour-${s.colourMode} motion-${s.motion}${big.classList.contains('fade') ? ' fade' : ''}`;
   card.classList.toggle('no-lyrics', s.showCardLyrics === false);
   placeCard(s.card.x, s.card.y);
+  panelSig = ''; shownIdx = null; // timing or style may have changed
+  update();
 }
 
 function placeCard(x, y) {
@@ -300,6 +352,7 @@ function placeCard(x, y) {
   // The grid only shows near the card, centred on its main part (not the hint under it).
   grid.style.setProperty('--gx', `${card.offsetLeft + card.offsetWidth / 2}px`);
   grid.style.setProperty('--gy', `${card.offsetTop + card.querySelector('.now').offsetHeight / 2 + 40}px`);
+  sendCardRect();
 }
 const grid = $('#grid');
 
@@ -390,8 +443,8 @@ api.on('settings', applySettings);
 api.on('state', onState);
 api.on('cover-colour', (c) => { coverColour = c.colour; applyAccent(); });
 api.on('cover', (c) => { lastCover = c; if (track && c.key === track.key) $('#cover').src = c.data; });
-api.on('lyrics', (l) => { lyrics = l; panelSig = ''; shownIdx = null; });
-api.on('edit', (on) => { editing = on; card.classList.toggle('editing', on); document.body.classList.toggle('moving', on); panelSig = ''; if (!on && !track) panel.replaceChildren(); });
+api.on('lyrics', (l) => { lyrics = l; panelSig = ''; shownIdx = null; update(); });
+api.on('edit', (on) => { editing = on; card.classList.toggle('editing', on); document.body.classList.toggle('moving', on); panelSig = ''; if (!on && !track) panel.replaceChildren(); update(); });
 api.on('toast', toast);
 api.on('panel-open', (open) => gear.classList.toggle('open', open));
 api.on('sync-now', () => {
@@ -404,4 +457,4 @@ api.on('sync-now', () => {
   api.send('set-offset', { key: songKey(track), lead: Math.round((target.t - t) * 100) / 100 });
 });
 addEventListener('resize', () => placeCard(settings.card.x, settings.card.y));
-requestAnimationFrame(frame);
+update();

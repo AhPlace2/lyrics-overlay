@@ -53,13 +53,20 @@ body.font-serif .artist { font-size: 15px; }
 /* Progress bar: thin, but with a taller invisible strip to grab, and a knob while the mouse is on it. */
 .bar { position: relative; height: 14px; margin-top: 3px; display: flex; align-items: center; cursor: pointer; touch-action: none; }
 .bar .track { flex: 1; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, .14); overflow: hidden; transition: height .12s; }
-.bar .track i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 2px; }
-.bar b {
-  position: absolute; top: 50%; left: 0; width: 11px; height: 11px; border-radius: 50%; background: #fff;
-  transform: translate(-50%, -50%) scale(0); transition: transform .12s; box-shadow: 0 1px 4px rgba(0, 0, 0, .4); pointer-events: none;
+/* The fill and knob move with transforms (no layout), set once a second, and glide there over that second in 60
+   steps (see the note on stepped animations below). --pos is 0..1; .jump skips the glide (new song, seeking). */
+.bar .track i {
+  display: block; height: 100%; background: var(--accent); border-radius: 2px;
+  transform-origin: left; transform: scaleX(var(--pos, 0)); transition: transform 1s steps(60);
+}
+.bar b { position: absolute; inset: 0; pointer-events: none; transform: translateX(calc(var(--pos, 0) * 100%)); transition: transform 1s steps(60); }
+.bar.jump .track i, .bar.jump b, .card.paused .bar .track i, .card.paused .bar b { transition: none; }
+.bar b::after {
+  content: ""; position: absolute; top: 50%; left: 0; width: 11px; height: 11px; border-radius: 50%; background: #fff;
+  transform: translate(-50%, -50%) scale(0); transition: transform .12s; box-shadow: 0 1px 4px rgba(0, 0, 0, .4);
 }
 .bar:hover .track, .bar.dragging .track { height: 6px; }
-.bar:hover b, .bar.dragging b { transform: translate(-50%, -50%) scale(1); }
+.bar:hover b::after, .bar.dragging b::after { transform: translate(-50%, -50%) scale(1); }
 .bar.off { cursor: default; }
 .bar.off b { display: none; }
 .bar.off .track { height: 4px; }
@@ -94,11 +101,19 @@ body.font-serif .artist { font-size: 15px; }
 body.dragging, body.dragging * { cursor: grabbing !important; }
 
 .eq { display: flex; gap: 2px; align-items: flex-end; height: 12px; margin: 0 2px 2px 0; }
-.eq i { width: 3px; background: var(--accent); border-radius: 1px; animation: eq 1s ease-in-out infinite; }
+.eq i { width: 3px; height: 12px; background: var(--accent); border-radius: 1px; transform-origin: bottom; animation: eq 1s infinite; }
 .eq i:nth-child(2) { animation-delay: -.35s; }
 .eq i:nth-child(3) { animation-delay: -.7s; }
 .eq.paused i { animation-play-state: paused; opacity: .5; }
-@keyframes eq { 0%, 100% { height: 4px; } 50% { height: 12px; } }
+/* scaleY, not height: a height change would lay out the whole page on every frame. */
+/* Every animation moves in steps of 60 a second rather than smoothly: Chromium otherwise draws
+   them at the screen's refresh rate, which on a 360 Hz screen costs a big share of a CPU core for a few pixels.
+   steps() applies to each keyframe interval, so the counts below are set per interval. */
+@keyframes eq {
+  0%, 100% { transform: scaleY(.34); animation-timing-function: steps(15); }
+  25%, 75% { transform: scaleY(.67); animation-timing-function: steps(15); }
+  50% { transform: none; animation-timing-function: steps(15); }
+}
 
 .panel {
   margin-top: 6px; padding: 9px 12px; border-radius: 10px;
@@ -113,8 +128,11 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 }
 .panel .l.cur::after {
   content: ""; position: absolute; left: 0; bottom: 0; height: 2px; border-radius: 1px;
-  width: calc(var(--p, 0) * 100%); background: var(--accent); opacity: .75;
+  width: 100%; background: var(--accent); opacity: .75;
+  transform-origin: left; transform: scaleX(0); animation: line-progress var(--dur, 4s) steps(var(--steps, 80)) var(--delay, 0s) forwards;
 }
+@keyframes line-progress { to { transform: scaleX(1); } }
+.card.paused .panel .l.cur::after { animation-play-state: paused; }
 .panel .note { color: var(--dim); font-style: italic; }
 .dots { display: flex; gap: 6px; padding: 6px 0; }
 .dots i { width: 7px; height: 7px; border-radius: 50%; background: rgba(255, 255, 255, .22); transition: background .3s; }
@@ -142,6 +160,8 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
   background-size: 96px 96px, 96px 96px, 24px 24px, 24px 24px;
 }
 body.moving .grid, body.dragging .grid { opacity: 1; }
+/* Nothing on screen: every animation stops, so an idle overlay costs nothing. */
+html.idle, html.idle * { animation-play-state: paused !important; }
 .guide { position: absolute; pointer-events: none; display: none; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
 .guide.on { display: block; }
 .guide-x { top: 0; bottom: 0; width: 1px; }
@@ -151,8 +171,10 @@ body.moving .grid, body.dragging .grid { opacity: 1; }
 .big {
   position: absolute; left: 50%; top: var(--big-top); width: min(84vw, 1500px);
   transform: translate(-50%, -50%); text-align: center; pointer-events: none;
-  animation: hue 6s linear infinite;
 }
+/* The colour cycle only runs for the colours that move, and only while lyrics show. */
+.big.colour-rainbow, .big.colour-fade { animation: hue 6s steps(360) infinite; }
+.big.fade, .big.fade .inner { animation-play-state: paused !important; }
 @keyframes hue { to { --hue: 360; } }
 .line {
   position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%);
@@ -161,16 +183,24 @@ body.moving .grid, body.dragging .grid { opacity: 1; }
 }
 body.font-serif .line { font-weight: 400; font-style: italic; font-size: clamp(38px, 4.4vw, 82px); letter-spacing: 0; }
 body.font-pixel .line { font-weight: 700; letter-spacing: .02em; }
-.line.leaving { animation: drift .8s cubic-bezier(.4, 0, .6, 1) forwards; }
-@keyframes drift {
-  to { transform: translateY(-160%) scale(.92); opacity: 0; filter: blur(6px); }
+/* The line leaving and the words coming in run at 60 steps a second instead of the screen's refresh rate (see the
+   note at @keyframes eq). Their keyframes trace the ease curves they used to have, one step count per interval. */
+.line.leaving { animation: drift .8s forwards; }
+@keyframes drift { /* ease-in-out */
+  0% { animation-timing-function: steps(14); }
+  30% { transform: translateY(-32%) scale(.984); opacity: .8; filter: blur(1.2px); animation-timing-function: steps(10); }
+  50% { transform: translateY(-80%) scale(.96); opacity: .5; filter: blur(3px); animation-timing-function: steps(10); }
+  70% { transform: translateY(-128%) scale(.936); opacity: .2; filter: blur(4.8px); animation-timing-function: steps(14); }
+  100% { transform: translateY(-160%) scale(.92); opacity: 0; filter: blur(6px); }
 }
 .big.fade .line { opacity: 0; transition: opacity .8s ease; }
 
-.word { display: inline-block; opacity: 0; animation: word-in .42s cubic-bezier(.2, .8, .2, 1) forwards; }
-@keyframes word-in {
-  from { opacity: 0; transform: translateY(.4em) scale(.88); filter: blur(8px); }
-  to { opacity: 1; transform: none; filter: none; }
+.word { display: inline-block; opacity: 0; animation: word-in .42s forwards; }
+@keyframes word-in { /* ease-out */
+  0% { opacity: 0; transform: translateY(.4em) scale(.88); filter: blur(8px); animation-timing-function: steps(5); }
+  20% { opacity: .6; transform: translateY(.16em) scale(.952); filter: blur(3.2px); animation-timing-function: steps(6); }
+  45% { opacity: .9; transform: translateY(.04em) scale(.988); filter: blur(.8px); animation-timing-function: steps(14); }
+  100% { opacity: 1; transform: none; filter: none; }
 }
 .inner { display: inline-block; }
 
@@ -182,7 +212,7 @@ body.font-pixel .line { font-weight: 700; letter-spacing: .02em; }
 .colour-fade .inner { --c: color-mix(in oklab, var(--fade-a) calc(abs(mod(var(--hue) + var(--i) * 32, 360) / 180 - 1) * 100%), var(--fade-b)); }
 /* ...and the card's colour flows with it. */
 html.colour-fade {
-  animation: hue 6s linear infinite;
+  animation: hue 6s steps(360) infinite;
   --accent: color-mix(in oklab, var(--fade-a) calc(abs(var(--hue) / 180 - 1) * 100%), var(--fade-b));
 }
 
@@ -207,12 +237,33 @@ html.colour-fade {
 }
 
 /* Motions (the words' entrance animation runs on .word, so these can use .inner freely) */
-.motion-wave .inner { animation: wave 1.8s ease-in-out infinite; animation-delay: calc(var(--i) * -.14s); }
-@keyframes wave { 0%, 100% { transform: translateY(-.12em); } 50% { transform: translateY(.12em); } }
-.motion-bounce .inner { animation: hop 1.6s cubic-bezier(.3, .7, .4, 1) infinite; animation-delay: calc(var(--i) * .1s); }
-@keyframes hop { 0%, 30%, 100% { transform: none; } 12% { transform: translateY(-.22em) scale(1.04); } }
-.motion-pulse .inner { animation: pulse 1.2s ease-in-out infinite; }
-@keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.07); } }
+/* The delays are whole 60 fps frames, so the words' steps line up and share frames. */
+.motion-wave .inner { animation: wave 1.8s infinite; animation-delay: calc(var(--i) * -8s / 60); }
+@keyframes wave { /* a sine wave in eight straight pieces */
+  0%, 100% { transform: translateY(-.12em); animation-timing-function: steps(14); }
+  12.5% { transform: translateY(-.085em); animation-timing-function: steps(14); }
+  25% { transform: translateY(0); animation-timing-function: steps(14); }
+  37.5% { transform: translateY(.085em); animation-timing-function: steps(14); }
+  50% { transform: translateY(.12em); animation-timing-function: steps(14); }
+  62.5% { transform: translateY(.085em); animation-timing-function: steps(14); }
+  75% { transform: translateY(0); animation-timing-function: steps(14); }
+  87.5% { transform: translateY(-.085em); animation-timing-function: steps(14); }
+}
+.motion-bounce .inner { animation: hop 1.6s infinite; animation-delay: calc(var(--i) * 6s / 60); }
+@keyframes hop {
+  0% { transform: none; animation-timing-function: steps(6); }
+  6% { transform: translateY(-.17em) scale(1.03); animation-timing-function: steps(6); }
+  12% { transform: translateY(-.22em) scale(1.04); animation-timing-function: steps(6); }
+  20% { transform: translateY(-.12em) scale(1.02); animation-timing-function: steps(10); }
+  30%, 100% { transform: none; animation-timing-function: steps(1, end); }
+}
+.motion-pulse .inner { animation: pulse 1.2s infinite; }
+@keyframes pulse {
+  0%, 100% { transform: scale(1); animation-timing-function: steps(18); }
+  25% { transform: scale(1.035); animation-timing-function: steps(18); }
+  50% { transform: scale(1.07); animation-timing-function: steps(18); }
+  75% { transform: scale(1.035); animation-timing-function: steps(18); }
+}
 
 /* ---------- Toast ---------- */
 .toast {
