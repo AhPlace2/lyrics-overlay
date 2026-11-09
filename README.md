@@ -14,25 +14,25 @@ Spotify · YouTube in Chrome, Edge, Firefox or Brave · any player in Windows' m
   <img alt="License: AGPL-3.0" src="https://img.shields.io/badge/License-AGPL--3.0-A42E2B?style=for-the-badge">
 </p>
 
-[Features](#-features) · [Install](#-install) · [Use it](#-use-it) · [How it works](#-how-it-works) · [Privacy](#-privacy) · [License](#-license)
+[Features](#features) · [Install](#install) · [Use it](#use-it) · [How it works](#how-it-works) · [Privacy](#privacy) · [License](#license)
 
 </div>
 
 ---
 
-## ✨ Features
+## <img src="docs/icons/sparkles.svg" width="24" height="24" align="top" alt=""> Features
 
 <table>
 <tr>
 <td width="50%" valign="top">
 
-### 🎵 Now playing card
+### <img src="docs/icons/music.svg" width="20" height="20" align="top" alt=""> Now playing card
 Cover, title, artist and a draggable progress bar, with play/pause and previous/next. The current lyric line underlines itself as it's sung, with the next lines below. Drag it anywhere, resize it, and hold **Ctrl** to make it fade away so you can click what's under it.
 
 </td>
 <td width="50%" valign="top">
 
-### 🔤 Big floating lyrics
+### <img src="docs/icons/type.svg" width="20" height="20" align="top" alt=""> Big floating lyrics
 Lines that type in word by word, styled by mixing:
 - **Look** — Depth (3D), Glow, Outline, Plain
 - **Colour** — any colour, rainbow, a fade between two colours, or the cover art's colour
@@ -45,13 +45,13 @@ Lines that type in word by word, styled by mixing:
 <tr>
 <td valign="top">
 
-### 🎯 Timing that fits
+### <img src="docs/icons/timer.svg" width="20" height="20" align="top" alt=""> Timing that fits
 Lyrics come from [LRCLIB](https://lrclib.net), with other versions from LRCLIB and NetEase when the timing is off. Nudge a song earlier or later, or press **Sync** the moment a line is sung. Your fix is saved for that song.
 
 </td>
 <td valign="top">
 
-### 🎧 Song recognition
+### <img src="docs/icons/audio-lines.svg" width="20" height="20" align="top" alt=""> Song recognition
 When a video's title is too messy to find lyrics, the app can listen to a few seconds of what's playing and ask Shazam what the song really is, then search again with the real name.
 
 </td>
@@ -59,20 +59,20 @@ When a video's title is too messy to find lyrics, the app can listen to a few se
 <tr>
 <td valign="top">
 
-### 💾 Instant and offline
+### <img src="docs/icons/hard-drive.svg" width="20" height="20" align="top" alt=""> Instant and offline
 Lyrics found once are saved on disk, so a song loads instantly next time, even without internet.
 
 </td>
 <td valign="top">
 
-### 🖱️ Stays out of your way
+### <img src="docs/icons/mouse-pointer-click.svg" width="20" height="20" align="top" alt=""> Stays out of your way
 A click-through window: everything except the card lets your clicks pass to the apps underneath. It doesn't pause YouTube, and goes fully idle when nothing is playing.
 
 </td>
 </tr>
 </table>
 
-## 📦 Install
+## <img src="docs/icons/download.svg" width="24" height="24" align="top" alt=""> Install
 
 > Needs **Windows 10 or 11**.
 
@@ -97,9 +97,9 @@ npm install
 npm start
 ```
 
-## 🎛️ Use it
+## <img src="docs/icons/sliders-horizontal.svg" width="24" height="24" align="top" alt=""> Use it
 
-Click the ⚙️ gear on the card for settings, or right-click the tray icon.
+Click the gear <img src="docs/icons/settings.svg" width="16" height="16" align="top" alt=""> on the card for settings, or right-click the tray icon.
 
 | Shortcut | Does |
 |:--|:--|
@@ -112,11 +112,11 @@ Click the ⚙️ gear on the card for settings, or right-click the tray icon.
 
 Settings live in `%APPDATA%\lyrics-overlay\settings.json`, saved lyrics in `%APPDATA%\lyrics-overlay\lyrics-cache`. **Reset all** in the settings puts everything back to the defaults.
 
-## 🔧 How it works
+## <img src="docs/icons/workflow.svg" width="24" height="24" align="top" alt=""> How it works
 
 ```mermaid
 flowchart LR
-    P["🎶 Player<br/>Spotify · browser · …"] -->|Windows media controls| H["nowplaying.ps1"]
+    P["Player<br/>Spotify · browser · …"] -->|Windows media controls| H["nowplaying.ps1"]
     H -->|title · artist · position| M["main.js"]
     M -->|search| L["lyrics.js<br/>LRCLIB · NetEase"]
     M -.->|no lyrics?| S["shazam.js<br/>listen & recognise"]
@@ -133,7 +133,7 @@ flowchart LR
 | `main.js` | The click-through overlay window, tray icon, shortcuts and settings |
 | `overlay.*` · `settings.*` | Draws the card and big lyrics · the settings panel |
 
-## 🔒 Privacy
+## <img src="docs/icons/shield-check.svg" width="24" height="24" align="top" alt=""> Privacy
 
 No account, no tracking, no analytics. The app only talks to:
 
@@ -144,7 +144,7 @@ No account, no tracking, no analytics. The app only talks to:
 > [!WARNING]
 > Song recognition uses Shazam's unofficial, private service, the same way open-source apps like SongRec do. It can stop working at any time and isn't allowed by Shazam's terms. Turn it off under **Settings → Show**.
 
-## 📄 License
+## <img src="docs/icons/scale.svg" width="24" height="24" align="top" alt=""> License
 
 [GNU Affero General Public License v3.0 or later](LICENSE). You can use, change and share this app, but anything you build on it and share, or run for others over a network, must be released under the same license with its source code.
 
