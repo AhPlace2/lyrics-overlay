@@ -27,7 +27,7 @@ Spotify · YouTube in Chrome, Edge, Firefox or Brave · any player in Windows' m
 <td width="50%" valign="top">
 
 ### 🎵 Now playing card
-Cover, title, artist and a draggable progress bar, with play/pause and previous/next. The current lyric line underlines itself as it's sung, with the next lines below. Drag it anywhere, resize it, and hold **Ctrl** to make it fade away so you can click what's under it.
+Cover, title, artist and a draggable progress bar, with play/pause and previous/next. The current lyric line underlines itself as it's sung, with the next lines below. Drag it anywhere, resize it, and **right-click** it to make it fade away so you can click what's under it.
 
 </td>
 <td width="50%" valign="top">
@@ -112,7 +112,7 @@ Click the ⚙️ gear on the card for settings, or right-click the tray icon.
 | <kbd>Ctrl</kbd> <kbd>Alt</kbd> <kbd>↑</kbd> / <kbd>↓</kbd> | Lyrics earlier / later by 0.25 s |
 | <kbd>Ctrl</kbd> <kbd>Alt</kbd> <kbd>O</kbd> / <kbd>P</kbd> | Next / previous lyrics version |
 | <kbd>Ctrl</kbd> <kbd>Alt</kbd> <kbd>M</kbd> | Arrange: drag and resize the card and the lyrics |
-| Hold <kbd>Ctrl</kbd> | Hide the card to click what's under it (Ctrl, Shift, Alt or off in settings) |
+| Right-click the card | Hide it to click what's under it (or hold Ctrl, Shift or Alt, set in settings) |
 
 Settings live in `%APPDATA%\lyrics-overlay\settings.json`, saved lyrics in `%APPDATA%\lyrics-overlay\lyrics-cache`. **Reset all** in the settings puts everything back to the defaults.
 

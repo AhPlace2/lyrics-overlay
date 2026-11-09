@@ -33,9 +33,9 @@
         <label class="row sub"><span>Play controls</span><input type="checkbox" data-toggle="showControls"></label>
         <label class="row"><span>Big floating lyrics</span><input type="checkbox" data-toggle="showBig"></label>
         <label class="row"><span>Recognise songs without lyrics</span><input type="checkbox" data-toggle="recognise"></label>
-        <p class="hint">When no lyrics are found, listens to ~11 s of what's playing and asks Shazam for the real song name. Uses Shazam's unofficial service, which may stop working.</p>
+        <p class="hint">No lyrics? Asks Shazam. Unofficial, may break.</p>
         <div class="field peek"><span>Hide the card while holding</span><div class="chips" data-choose="peekKey"></div>
-          <p class="hint">Hold the key on its own to click what's under the card. It comes back once you let go and move the mouse off it.</p></div>
+          <p class="hint">Or just right-click the card.</p></div>
       </section>
 
       <section class="pane" data-pane="layout" role="tabpanel">
@@ -58,7 +58,7 @@
         <div class="buttons arrange">
           <button type="button" data-act="reset-layout" class="quiet">Reset layout</button>
         </div>
-        <p class="hint">Or press “Arrange” below (Ctrl+Alt+M) to drag the card and the big lyrics anywhere, and drag their corners and sides to resize them.</p>
+        <p class="hint">Move and resize: “Arrange” (Ctrl+Alt+M).</p>
       </section>
 
       <section class="pane" data-pane="look" role="tabpanel">
@@ -101,7 +101,7 @@
               <button type="button" data-act="sync" title="Ctrl+Alt+S">Sync to now</button>
               <button type="button" data-act="reset" class="quiet">Reset</button>
             </div>
-            <p class="hint">“Sync to now”: press it the moment the line on screen is sung.</p>
+            <p class="hint">“Sync to now”: press when the line on screen is sung.</p>
           </div>
           <div class="field">
             <span>Lyrics <em id="source"></em></span>
@@ -110,7 +110,7 @@
               <button type="button" data-act="next" title="Ctrl+Alt+O">Other lyrics ›</button>
               <button type="button" data-act="first" class="quiet">Back to first</button>
               <button type="button" data-act="search" class="quiet">Search again</button>
-              <button type="button" data-act="recognise" class="quiet" title="Listen to the song and ask Shazam what it is">Recognise song</button>
+              <button type="button" data-act="recognise" class="quiet" title="Ask Shazam what this is">Recognise song</button>
             </div>
             <p id="recognised" class="hint hidden"></p>
           </div>
@@ -121,7 +121,7 @@
 
     <footer class="foot">
       <button type="button" data-act="move" title="Ctrl+Alt+M">Arrange</button>
-      <button type="button" id="reset-all" class="quiet" title="Put every setting back to how it started (your per-song timing fixes stay)">Reset all</button>
+      <button type="button" id="reset-all" class="quiet" title="Reset all settings (song timing fixes stay)">Reset all</button>
       <button type="button" data-act="quit" class="quiet">Quit</button>
     </footer>
   </main>

@@ -191,7 +191,7 @@ function renderColour({ settings: s, coverColour }) {
     b.classList.toggle('open', target === b.dataset.end);
   }
   $('#cover-hint').classList.toggle('hidden', m !== 'cover');
-  $('#cover-hint').textContent = coverColour ? 'Follows the cover art of whatever is playing.' : 'Shows once something with cover art plays.';
+  $('#cover-hint').textContent = coverColour ? 'Matches the cover art.' : 'Shows when a song with a cover plays.';
 
   // Keep the picker on what it edits: closed when that colour is no longer in use, and in step with
   // changes made elsewhere, but never fighting a drag in progress.

@@ -219,7 +219,7 @@ function showControls(s) {
   playBtn.title = s.status === 'Playing' ? 'Pause' : 'Play';
   const length = s.end - s.start;
   bar.classList.toggle('off', !c.seek || !(length > 0));
-  bar.title = bar.classList.contains('off') ? "This player doesn't allow jumping" : 'Drag to jump to a time';
+  bar.title = bar.classList.contains('off') ? "This player can't jump" : 'Drag to jump';
 }
 
 // Jumping: drag (or click) on the bar. While dragging, the card and lyrics preview that time.
@@ -419,6 +419,13 @@ function showGuide(el, at, side) {
   el.classList.toggle('on', at !== null);
   if (at !== null) el.style[side] = `${Math.round(at)}px`;
 }
+
+/* Right-click the card to hide it and click what's under it. Main fades it out and brings it back once the
+   mouse has moved off where it was. */
+card.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  if (!editing && !card.classList.contains('hidden')) api.send('peek-now');
+});
 
 /* Drag the card from anywhere but its buttons and progress bar, any time (not only in "Move card" mode),
    so it can be pushed aside when it is over something you want to click. It only starts moving after a

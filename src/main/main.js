@@ -48,7 +48,7 @@ const DEFAULTS = {
   showArtist: true,
   showProgress: true,
   showControls: true,
-  peekKey: 'ctrl', // hold this key alone to hide the card and click what's under it ('off' to never)
+  peekKey: 'off', // also hide the card while this key is held alone ('ctrl', 'shift', 'alt'); right-click always does
   recognise: true, // when no lyrics are found, listen to the song and ask Shazam what it really is
 };
 const PEEK_KEYS = [['off', 'Off'], ['ctrl', 'Ctrl'], ['shift', 'Shift'], ['alt', 'Alt']];
@@ -91,7 +91,7 @@ app.setPath('userData', path.join(app.getPath('appData'), 'lyrics-overlay'));
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => send('toast', 'Lyrics overlay is already running. Use the tray icon to change it.'));
+  app.on('second-instance', () => send('toast', 'Already running. Use the tray icon.'));
   app.whenReady().then(start);
 }
 
@@ -190,7 +190,7 @@ function createWindow() {
     if (lastCover) send('cover', lastCover);
     if (coverColour) send('cover-colour', coverColour);
     if (lastLyrics) send('lyrics', lastLyrics);
-    if (failedHotkeys.length) send('toast', `These shortcuts are taken by another app: ${failedHotkeys.join(', ')}`);
+    if (failedHotkeys.length) send('toast', `Shortcuts used by another app: ${failedHotkeys.join(', ')}`);
     win.showInactive();
   });
   screen.on('display-metrics-changed', fitToScreen);
@@ -230,9 +230,10 @@ function updateCatching() {
   if (!want) send('pointer-left');
 }
 
-/* ---------- Hide the card while a key is held ----------
-   While the chosen modifier is held on its own, the card fades out and lets clicks through to what's under it.
-   The overlay never has the keyboard, so on each check above it asks Windows which keys are down. */
+/* ---------- Hide the card ----------
+   Right-clicking the card, or holding the chosen modifier on its own, fades the card out and lets clicks through
+   to what's under it, until the mouse is off where the card was (and the key is let go). The overlay never has
+   the keyboard, so on each check above it asks Windows which keys are down. */
 let GetAsyncKeyState = null;
 try {
   GetAsyncKeyState = require('koffi').load('user32.dll').func('short __stdcall GetAsyncKeyState(int vKey)');
@@ -306,10 +307,10 @@ function startHelper() {
 
 /* Playback controls from the card go to the helper, which passes them to the player. */
 const CONTROL_REFUSED = {
-  toggle: "The player didn't pause or play",
-  next: 'The player has no next song here',
-  prev: 'The player has no previous song here',
-  seek: "This player doesn't allow jumping to a time",
+  toggle: "Player didn't respond",
+  next: 'No next song here',
+  prev: 'No previous song here',
+  seek: "This player can't jump",
 };
 
 function control(msg) {
@@ -532,7 +533,7 @@ async function recogniseSong(state, manual = false) {
   try {
     while (still() && lastState.status !== 'Playing') await wait(1000); // a paused song is only silence
     if (!still()) return;
-    if (manual || tries === 0) send('toast', 'Listening to recognise this song…');
+    if (manual || tries === 0) send('toast', 'Listening…');
     const w = await listenWindow();
     const { samples, peak } = await w.webContents.executeJavaScript(`record(${LISTEN_MS})`, true);
     if (!still()) return;
@@ -552,7 +553,7 @@ async function recogniseSong(state, manual = false) {
     versionsCache.delete(key); // "Other lyrics" should search under the new name too
     const result = await findLyrics(trackOf(state));
     if (!still()) return;
-    if (!result?.lines?.length) return send('toast', `Recognised “${name}”, but found no synced lyrics for it`);
+    if (!result?.lines?.length) return send('toast', `Found “${name}”, but no lyrics`);
     const value = {
       status: 'found', lines: result.lines, source: result.source, pick: result.pick, provider: result.provider,
       recognised: { title: match.title, artist: match.artist },
@@ -561,10 +562,10 @@ async function recogniseSong(state, manual = false) {
     saveLyrics(state, value);
     lastLyrics = { key, ...value };
     if (lookingFor === key) send('lyrics', lastLyrics);
-    send('toast', `Recognised: ${name}`);
+    send('toast', `Found: ${name}`);
   } catch (err) {
     console.error('Recognising the song failed:', err.message);
-    if (manual) send('toast', "Couldn't recognise this song right now");
+    if (manual) send('toast', "Couldn't recognise it now");
   } finally {
     recognising = null;
     refreshPanel();
@@ -590,7 +591,7 @@ async function tryOtherLyrics(step = 1) {
     const at = current ? versions.findIndex((v) => v.pick === current.pick) : -1;
     const differs = (v) => !current || !sameTiming(v.lines, current.lines);
     const next = step > 0 ? versions.slice(at + 1).find(differs) : (at > 0 ? versions.slice(0, at).reverse().find(differs) : null);
-    if (!next) return send('toast', step > 0 ? 'Sorry, no other lyrics found for this song' : 'Already on the first lyrics version');
+    if (!next) return send('toast', step > 0 ? 'No other lyrics found' : 'Already on the first version');
     const value = { status: 'found', lines: next.lines, source: next.source, pick: next.pick, provider: next.provider };
     lyricsCache.set(state.key, value);
     lastLyrics = { key: state.key, ...value };
@@ -600,10 +601,10 @@ async function tryOtherLyrics(step = 1) {
     delete offsets[key];
     update({ picks: { ...settings.picks, [key]: next.pick }, offsets });
     saveLyrics(state, value); // after the pick is stored, so the file is marked as the chosen version
-    send('toast', `Lyrics version ${versions.indexOf(next) + 1} of ${versions.length} (${next.provider})`);
+    send('toast', `Version ${versions.indexOf(next) + 1} of ${versions.length} (${next.provider})`);
   } catch (err) {
     console.error('Other lyrics failed:', err.message);
-    send('toast', "Couldn't reach the lyrics sites");
+    send('toast', "Can't reach the lyrics sites");
   } finally {
     searchingVersions = false;
   }
@@ -616,7 +617,7 @@ function useFirstLyrics() {
   update({ picks });
   lyricsCache.delete(lastState.key);
   lookUp(lastState, true);
-  send('toast', 'Back to the first lyrics for this song');
+  send('toast', 'Back to the first lyrics');
 }
 
 /* ---------- Tray and shortcuts ---------- */
@@ -647,7 +648,7 @@ function setLead(key, lead, message) {
   const keys = Object.keys(offsets);
   if (keys.length > 300) delete offsets[keys[0]]; // Keep the file small; the oldest fix goes first.
   update({ offsets });
-  send('toast', message || (lead === 0 ? 'Lyrics timing reset for this song' : `Lyrics ${lead > 0 ? 'earlier' : 'later'} by ${Math.abs(lead).toFixed(2)} s for this song`));
+  send('toast', message || (lead === 0 ? 'Timing reset' : `Lyrics ${Math.abs(lead).toFixed(2)} s ${lead > 0 ? 'earlier' : 'later'}`));
 }
 
 function nudge(delta) {
@@ -742,14 +743,14 @@ function onPanelAction(name, value) {
     case 'reset-layout': {
       const keys = ['card', 'cardScale', 'cardOpacity', 'cardLyricsSide', 'cardNext', 'bigPos', 'bigWidth', 'bigSize', 'bigAlign'];
       update(Object.fromEntries(keys.map((k) => [k, DEFAULTS[k]])));
-      send('toast', 'Layout back to how it started');
+      send('toast', 'Layout reset');
       break;
     }
     case 'reset-all': {
       // Every setting back to its default. Per-song timing fixes, lyrics picks and recent colours stay.
       const { offsets, picks, history, ...rest } = DEFAULTS;
       update(structuredClone(rest));
-      send('toast', 'All settings back to the defaults');
+      send('toast', 'Settings reset');
       break;
     }
     case 'choose':
@@ -826,6 +827,11 @@ function start() {
   ipcMain.on('open-settings', (_e, at) => togglePanel(at));
   ipcMain.on('control', (e, msg) => { if (win && e.sender === win.webContents) control(msg); });
   ipcMain.on('ui-hover', (_e, on) => { pageHold = !!on; pageBusy = on === 'busy'; updateCatching(); });
+  ipcMain.on('peek-now', (e) => {
+    if (!win || e.sender !== win.webContents || editing) return;
+    setPeeking(true);
+    updateCatching();
+  });
   ipcMain.on('card-rect', (_e, r) => {
     cardRect = r && [r.x, r.y, r.width, r.height].every(Number.isFinite) ? r : null;
     updateCatching();
@@ -833,7 +839,7 @@ function start() {
   ipcMain.on('panel-action', (e, msg) => { if (panel && e.sender === panel.webContents) onPanelAction(msg?.name, msg?.value); });
   ipcMain.on('set-offset', (_e, msg) => {
     if (typeof msg?.key === 'string' && Number.isFinite(msg.lead)) {
-      setLead(msg.key, msg.lead, msg.lead === 0 ? 'Lyrics already line up here' : `Synced: lyrics ${msg.lead > 0 ? 'earlier' : 'later'} by ${Math.abs(msg.lead).toFixed(2)} s for this song`);
+      setLead(msg.key, msg.lead, msg.lead === 0 ? 'Already in sync' : `Synced: ${Math.abs(msg.lead).toFixed(2)} s ${msg.lead > 0 ? 'earlier' : 'later'}`);
     }
   });
 }

@@ -1,5 +1,6 @@
 'use strict';
-// Finds time-synced lyrics on LRCLIB (https://lrclib.net), a free lyrics database.
+// Finds time-synced lyrics on LRCLIB (https://lrclib.net), a free lyrics database, and on NetEase Cloud Music when
+// LRCLIB has none.
 
 const BASE = 'https://lrclib.net/api';
 const USER_AGENT = 'lyrics-overlay/0.1 (personal desktop prototype)';
@@ -145,11 +146,26 @@ function swapped(list) {
 const found = (r) => ({ lines: delayEarlyStarts(parseLRC(r.syncedLyrics)), source: `${r.artistName} – ${r.trackName}`, pick: `lrclib:${r.id}`, provider: 'LRCLIB' });
 
 /**
- * Returns { lines, source } with synced lyrics, { plainOnly: true } when only unsynced text exists,
- * or null when nothing was found.
+ * Returns { lines, source, pick, provider } with synced lyrics, { plainOnly: true } when only unsynced text
+ * exists, or null when nothing was found. LRCLIB first; when it has no timed lyrics (or can't be reached),
+ * NetEase's best match.
  */
 async function findLyrics(track) {
   const duration = track.duration > 0 ? track.duration : 0;
+  let fromLrclib = null, lrclibError = null;
+  try { fromLrclib = await lrclibLyrics(track, duration); } catch (err) { lrclibError = err; }
+  if (fromLrclib?.lines) return fromLrclib;
+  try {
+    const [first] = await neteaseVersions(track, duration);
+    if (first) return first;
+  } catch (err) {
+    console.error('NetEase lookup failed:', err.message);
+  }
+  if (lrclibError) throw lrclibError;
+  return fromLrclib;
+}
+
+async function lrclibLyrics(track, duration) {
   let plainOnly = false;
   const list = candidates(track);
   for (const c of list) {
