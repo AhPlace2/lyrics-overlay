@@ -3,7 +3,7 @@
   "version": "0.1.5",
   "private": true,
   "description": "Synced lyrics floating on top of your desktop for whatever is playing.",
-  "main": "main.js",
+  "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win nsis"
@@ -22,15 +22,11 @@
       "buildResources": "build"
     },
     "files": [
-      "*.js",
-      "*.html",
-      "*.css",
-      "nowplaying.ps1",
-      "package.json",
-      "!build/**"
+      "src/**/*",
+      "package.json"
     ],
     "asarUnpack": [
-      "nowplaying.ps1"
+      "src/main/nowplaying.ps1"
     ],
     "win": {
       "target": "nsis",

@@ -9,6 +9,9 @@ const { findLyrics, findVersions, sameTiming } = require('./lyrics');
 const { findCover } = require('./cover');
 const shazam = require('./shazam');
 
+// Each window's page, style, script and preload sit in their own folder under src/.
+const page = (...parts) => path.join(__dirname, '..', ...parts);
+
 const DEFAULTS = {
   enabled: true,
   showCard: true,
@@ -169,7 +172,7 @@ function createWindow() {
     backgroundColor: '#00000000',
     show: false,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: page('overlay', 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       backgroundThrottling: false,
@@ -180,7 +183,7 @@ function createWindow() {
   // Clicks pass through to the desktop, except over the card (see "Click-through" below).
   win.setIgnoreMouseEvents(true);
   setInterval(updateCatching, 33);
-  win.loadFile(path.join(__dirname, 'overlay.html'));
+  win.loadFile(page('overlay', 'overlay.html'));
   win.webContents.on('did-finish-load', () => {
     send('settings', settings);
     if (lastState) send('state', lastState);
@@ -284,8 +287,9 @@ function setEditing(on) {
 }
 
 /* ---------- Now playing ---------- */
-// In the installed app the code sits inside app.asar, which PowerShell can't read, so the script is kept beside it.
-const helperScript = path.join(__dirname.replace(/app\.asar$/, 'app.asar.unpacked'), 'nowplaying.ps1');
+// In the installed app the code sits inside app.asar, which PowerShell can't read, so the script is kept beside it
+// in app.asar.unpacked, at the same place inside.
+const helperScript = path.join(__dirname.replace(/app\.asar(?=[\\/]|$)/, 'app.asar.unpacked'), 'nowplaying.ps1');
 
 function startHelper() {
   helper = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', helperScript, '-ParentPid', String(process.pid)], { windowsHide: true });
@@ -491,7 +495,7 @@ async function listenWindow() {
   });
   listenWin = w;
   w.on('closed', () => { if (listenWin === w) listenWin = null; });
-  await w.loadFile(path.join(__dirname, 'listen.html'));
+  await w.loadFile(page('listen', 'listen.html'));
   return w;
 }
 
@@ -702,11 +706,11 @@ function togglePanel(at) {
     x: Math.max(area.x, Math.round(x)), y: area.y + Math.max(0, Math.round(card.y) - 10), width: PANEL_WIDTH, height: 600,
     transparent: true, frame: false, resizable: false, minimizable: false, maximizable: false, fullscreenable: false,
     skipTaskbar: true, hasShadow: false, show: false, backgroundColor: '#00000000',
-    webPreferences: { preload: path.join(__dirname, 'preload-settings.js'), contextIsolation: true, nodeIntegration: false },
+    webPreferences: { preload: page('settings', 'preload.js'), contextIsolation: true, nodeIntegration: false },
   });
   panel = w;
   w.setAlwaysOnTop(true, 'screen-saver');
-  w.loadFile(path.join(__dirname, 'settings.html'), { query: { side } });
+  w.loadFile(page('settings', 'settings.html'), { query: { side } });
   // The opening animation starts once the window is on screen, so it isn't over before anyone sees it.
   w.webContents.on('did-finish-load', () => { refreshPanel(); w.show(); w.webContents.send('panel-opening'); });
   w.on('blur', () => closePanel(w)); // closes like a menu when you click elsewhere

@@ -125,13 +125,21 @@ flowchart LR
     M <--> G["settings panel"]
 ```
 
-| File | Role |
-|:--|:--|
-| `nowplaying.ps1` | Reads Windows' media controls (title, artist, position, cover) and reports changes |
-| `lyrics.js` | Finds and scores timed lyrics; `cover.js` finds a cover on iTunes when the player shares none |
-| `shazam.js` · `listen.*` | Records ~11 s of system audio, builds an audio fingerprint and asks Shazam for the song |
-| `main.js` | The click-through overlay window, tray icon, shortcuts and settings |
-| `overlay.*` · `settings.*` | Draws the card and big lyrics · the settings panel |
+```
+src/
+├── main/        the app itself, running in the background
+│   ├── main.js          overlay window, tray icon, shortcuts, settings
+│   ├── nowplaying.ps1   reads Windows' media controls (title, artist, position, cover)
+│   ├── lyrics.js        finds and scores timed lyrics
+│   ├── cover.js         finds a cover on iTunes when the player shares none
+│   └── shazam.js        turns audio into a fingerprint and asks Shazam for the song
+├── overlay/     the card and the big lyrics on screen
+├── settings/    the settings panel
+└── listen/      records ~11 s of system audio for song recognition
+build/           app icon (drawn by make-icon.js)
+```
+
+Each window's folder holds its page (`.html`), style (`.css`), script (`.js`) and `preload.js`, the bridge that lets the page talk to `main.js`.
 
 ## 🔒 Privacy
 
