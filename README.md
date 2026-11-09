@@ -14,7 +14,7 @@ Spotify · YouTube in Chrome, Edge, Firefox or Brave · any player in Windows' m
   <img alt="License: AGPL-3.0" src="https://img.shields.io/badge/License-AGPL--3.0-A42E2B?style=for-the-badge">
 </p>
 
-[Features](#features) · [Install](#install) · [Use it](#use-it) · [How it works](#how-it-works) · [Privacy](#privacy) · [License](#license)
+[Features](#-features) · [Install](#-install) · [Use it](#-use-it) · [How it works](#-how-it-works) · [Privacy](#-privacy) · [License](#-license)
 
 </div>
 
