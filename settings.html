@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com">
 <title>Lyrics Overlay settings</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Instrument+Serif:ital@0;1&family=Pixelify+Sans:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Instrument+Serif:ital@0;1&family=Pixelify+Sans:wght@400;600;700&family=Bebas+Neue&family=Nunito:wght@600;800;900&family=Caveat:wght@600;700&display=swap">
 <link rel="stylesheet" href="settings.css">
 </head>
 <body>
@@ -17,6 +17,7 @@
     <nav class="tabs" role="tablist">
       <i class="ind" aria-hidden="true"></i>
       <button type="button" role="tab" data-tab="show">Show</button>
+      <button type="button" role="tab" data-tab="layout">Layout</button>
       <button type="button" role="tab" data-tab="look">Look</button>
       <button type="button" role="tab" data-tab="song">This song</button>
     </nav>
@@ -25,14 +26,45 @@
       <section class="pane" data-pane="show" role="tabpanel">
         <label class="row"><span>Lyrics <kbd>Ctrl+Alt+L</kbd></span><input type="checkbox" data-toggle="enabled"></label>
         <label class="row"><span>Now playing card</span><input type="checkbox" data-toggle="showCard"></label>
-        <label class="row sub"><span>Lyrics under the card</span><input type="checkbox" data-toggle="showCardLyrics"></label>
+        <label class="row sub"><span>Lyrics on the card</span><input type="checkbox" data-toggle="showCardLyrics"></label>
+        <label class="row sub"><span>Cover art</span><input type="checkbox" data-toggle="showCover"></label>
+        <label class="row sub"><span>Artist</span><input type="checkbox" data-toggle="showArtist"></label>
+        <label class="row sub"><span>Progress bar and time</span><input type="checkbox" data-toggle="showProgress"></label>
+        <label class="row sub"><span>Play controls</span><input type="checkbox" data-toggle="showControls"></label>
         <label class="row"><span>Big floating lyrics</span><input type="checkbox" data-toggle="showBig"></label>
-        <div class="field"><span>Big lyrics position</span><div class="chips" data-choose="bigPosition"></div></div>
+        <label class="row"><span>Recognise songs without lyrics</span><input type="checkbox" data-toggle="recognise"></label>
+        <p class="hint">When no lyrics are found, listens to ~11 s of what's playing and asks Shazam for the real song name. Uses Shazam's unofficial service, which may stop working.</p>
+        <div class="field peek"><span>Hide the card while holding</span><div class="chips" data-choose="peekKey"></div>
+          <p class="hint">Hold the key on its own to click what's under the card. It comes back once you let go and move the mouse off it.</p></div>
+      </section>
+
+      <section class="pane" data-pane="layout" role="tabpanel">
+        <h3 class="group">Card</h3>
+        <label class="slider"><span>Size <em data-out="cardScale"></em></span><input type="range" data-set="cardScale" min="60" max="200" step="5" data-unit="%"></label>
+        <label class="slider"><span>Background <em data-out="cardOpacity"></em></span><input type="range" data-set="cardOpacity" min="0" max="100" step="1" data-unit="%"></label>
+        <div class="field"><span>Lyrics on the card go</span><div class="chips" data-choose="cardLyricsSide"></div></div>
+        <label class="slider"><span>Coming lines shown <em data-out="cardNext"></em></span><input type="range" data-set="cardNext" min="0" max="4" step="1"></label>
+
+        <h3 class="group">Big lyrics</h3>
+        <label class="slider"><span>Text size <em data-out="bigSize"></em></span><input type="range" data-set="bigSize" min="40" max="250" step="5" data-unit="%"></label>
+        <label class="slider"><span>Line width <em data-out="bigWidth"></em></span><input type="range" data-set="bigWidth" min="25" max="98" step="1" data-unit="%"></label>
+        <div class="field"><span>Place</span><div id="presets" class="chips">
+          <button type="button" data-y="0.18">Top</button>
+          <button type="button" data-y="0.44">Middle</button>
+          <button type="button" data-y="0.76">Lower third</button>
+        </div></div>
+        <div class="field"><span>Line up text</span><div class="chips" data-choose="bigAlign"></div></div>
+
+        <div class="buttons arrange">
+          <button type="button" data-act="reset-layout" class="quiet">Reset layout</button>
+        </div>
+        <p class="hint">Or press “Arrange” below (Ctrl+Alt+M) to drag the card and the big lyrics anywhere, and drag their corners and sides to resize them.</p>
       </section>
 
       <section class="pane" data-pane="look" role="tabpanel">
         <div class="field"><span>Look</span><div class="chips" data-choose="look"></div></div>
         <div class="field"><span>Motion</span><div class="chips" data-choose="motion"></div></div>
+        <div class="field"><span>Words come in</span><div class="chips" data-choose="entrance"></div></div>
         <div class="field"><span>Font</span><div class="chips" data-choose="font"></div></div>
         <div class="field">
           <span>Colour <em id="colour-name"></em></span>
@@ -78,7 +110,9 @@
               <button type="button" data-act="next" title="Ctrl+Alt+O">Other lyrics ›</button>
               <button type="button" data-act="first" class="quiet">Back to first</button>
               <button type="button" data-act="search" class="quiet">Search again</button>
+              <button type="button" data-act="recognise" class="quiet" title="Listen to the song and ask Shazam what it is">Recognise song</button>
             </div>
+            <p id="recognised" class="hint hidden"></p>
           </div>
         </div>
         <p id="nothing" class="nothing">Play a song to adjust its timing and lyrics.</p>
@@ -86,7 +120,8 @@
     </div>
 
     <footer class="foot">
-      <button type="button" data-act="move" title="Ctrl+Alt+M">Move card</button>
+      <button type="button" data-act="move" title="Ctrl+Alt+M">Arrange</button>
+      <button type="button" id="reset-all" class="quiet" title="Put every setting back to how it started (your per-song timing fixes stay)">Reset all</button>
       <button type="button" data-act="quit" class="quiet">Quit</button>
     </footer>
   </main>

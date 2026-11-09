@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, screen, Tray, Menu, nativeImage, globalShortcut, ipcMain } = require('electron');
+const { app, BrowserWindow, screen, Tray, Menu, nativeImage, globalShortcut, ipcMain, desktopCapturer, session } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const crypto = require('node:crypto');
@@ -7,6 +7,7 @@ const { spawn } = require('node:child_process');
 const readline = require('node:readline');
 const { findLyrics, findVersions, sameTiming } = require('./lyrics');
 const { findCover } = require('./cover');
+const shazam = require('./shazam');
 
 const DEFAULTS = {
   enabled: true,
@@ -24,13 +25,45 @@ const DEFAULTS = {
   history: [], // the last two colours picked before this one
   fadeFrom: '#ff6fae',
   fadeTo: '#6cc8ff',
-  bigPosition: 'center',
+  entrance: 'rise', // how each word of the big lyrics comes in
+  // Big lyrics: where the middle of the lyrics sits (fractions of the screen), how wide the lines may run (a
+  // fraction of the screen's width), the text size (1 = normal) and how lines line up.
+  bigPos: { x: 0.5, y: 0.44 },
+  bigWidth: 0.84,
+  bigSize: 1,
+  bigAlign: 'center',
   offsets: {},
   picks: {}, // song -> the lyrics version chosen with "Try other lyrics"
+  // The card: where it is, how big (1 = normal), how solid its background is, which side of the song its
+  // lyrics go, how many coming lines they show, and which of its parts show.
   card: { x: 24, y: 24 },
+  cardScale: 1,
+  cardOpacity: 0.84,
+  cardLyricsSide: 'bottom',
+  cardNext: 2,
+  showCover: true,
+  showArtist: true,
+  showProgress: true,
+  showControls: true,
+  peekKey: 'ctrl', // hold this key alone to hide the card and click what's under it ('off' to never)
+  recognise: true, // when no lyrics are found, listen to the song and ask Shazam what it really is
 };
-const LOOKS = [['depth', 'Depth (3D)'], ['glow', 'Glow'], ['outline', 'Outline'], ['plain', 'Plain']];
-const MOTIONS = [['none', 'None'], ['wave', 'Wave'], ['bounce', 'Bounce'], ['pulse', 'Pulse']];
+const PEEK_KEYS = [['off', 'Off'], ['ctrl', 'Ctrl'], ['shift', 'Shift'], ['alt', 'Alt']];
+const LOOKS = [
+  ['depth', 'Depth (3D)'], ['glow', 'Glow'], ['outline', 'Outline'], ['plain', 'Plain'],
+];
+const MOTIONS = [
+  ['none', 'None'], ['wave', 'Wave'], ['bounce', 'Bounce'], ['pulse', 'Pulse'], ['float', 'Float'], ['flicker', 'Flicker'],
+];
+const ENTRANCES = [['rise', 'Rise'], ['pop', 'Pop'], ['slide', 'Slide'], ['drop', 'Drop'], ['fade', 'Fade']];
+const SIDES = [['bottom', 'Below'], ['top', 'Above'], ['left', 'Left'], ['right', 'Right']];
+const ALIGNS = [['left', 'Left'], ['center', 'Centre'], ['right', 'Right']];
+// Number settings and the range each may take. Whole numbers where the step is 1.
+const RANGES = {
+  cardScale: [0.6, 2, 0.01], cardOpacity: [0, 1, 0.01], cardNext: [0, 4, 1],
+  bigWidth: [0.25, 0.98, 0.01], bigSize: [0.4, 2.5, 0.01],
+};
+const TOGGLES = ['enabled', 'showCard', 'showCardLyrics', 'showBig', 'showCover', 'showArtist', 'showProgress', 'showControls', 'recognise'];
 const COLOUR_MODES = [['accent', 'Colour'], ['rainbow', 'Rainbow'], ['fade', 'Fade'], ['cover', 'From the cover']];
 // The single "effect" setting from before, translated into look, colour and motion.
 const OLD_EFFECTS = {
@@ -40,8 +73,7 @@ const OLD_EFFECTS = {
   wave: { look: 'glow', colourMode: 'accent', motion: 'wave' },
   plain: { look: 'plain', colourMode: 'accent', motion: 'none' },
 };
-const FONTS = [['clean', 'Clean'], ['serif', 'Serif'], ['pixel', 'Pixel']];
-const POSITIONS = [['center', 'Middle of the screen'], ['bottom', 'Lower third']];
+const FONTS = [['clean', 'Clean'], ['serif', 'Serif'], ['pixel', 'Pixel'], ['bold', 'Poster'], ['round', 'Round'], ['hand', 'Hand']];
 
 let win = null, panel = null, tray = null, helper = null, quitting = false, editing = false;
 let settings = { ...DEFAULTS };
@@ -69,6 +101,12 @@ function loadSettings() {
     delete saved.lead; // Timing used to be one setting for every song; it is per song now.
     if (saved.effect) Object.assign(saved, saved.look ? {} : OLD_EFFECTS[saved.effect] || {});
     delete saved.effect;
+    // The big lyrics used to have two places to be; now they go anywhere.
+    if (saved.bigPosition && !saved.bigPos) saved.bigPos = { x: 0.5, y: saved.bigPosition === 'bottom' ? 0.76 : 0.44 };
+    delete saved.bigPosition;
+    // A look or motion that has since been removed goes back to the default.
+    if (!LOOKS.some(([v]) => v === saved.look)) delete saved.look;
+    if (!MOTIONS.some(([v]) => v === saved.motion)) delete saved.motion;
     return { ...DEFAULTS, ...saved, offsets: saved.offsets || {}, picks: saved.picks || {} };
   } catch { return { ...DEFAULTS }; }
 }
@@ -87,6 +125,19 @@ function update(patch) {
   buildMenu();
 }
 
+/** Sets a number setting (kept in its range) or where the big lyrics are. Ignores anything else. */
+function setValue(key, value) {
+  if (key === 'bigPos') {
+    if (!Number.isFinite(value?.x) || !Number.isFinite(value?.y)) return;
+    const clamp = (v) => Math.round(Math.min(1, Math.max(0, v)) * 1000) / 1000;
+    return update({ bigPos: { x: clamp(value.x), y: clamp(value.y) } });
+  }
+  const range = RANGES[key];
+  if (!range || !Number.isFinite(value)) return;
+  const [min, max, step] = range;
+  update({ [key]: Number((Math.round(Math.min(max, Math.max(min, value)) / step) * step).toFixed(3)) });
+}
+
 function send(channel, data) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, data);
 }
@@ -100,6 +151,10 @@ function fitToScreen() {
 
 function createWindow() {
   win = new BrowserWindow({
+    // A tool window. Chrome pauses video when it thinks a window fully covers it, and this window spans the
+    // screen. Chrome ignores click-through windows, but over the card the overlay stops being click-through,
+    // which froze YouTube while hovering or dragging the card. Chrome always ignores tool windows.
+    type: 'toolbar',
     transparent: true,
     frame: false,
     resizable: false,
@@ -146,7 +201,9 @@ function createWindow() {
    messages a second, which kept the app busy. Instead main looks where the pointer is 30 times a second and
    catches the mouse only while it is over the card (the page reports where the card is, or null when the card
    can't show). While caught, the page gets the mouse as usual; it holds on during drags and seeks. */
-let cardRect = null, pageHold = false, catching = false;
+// pageHold: the page has the pointer on the card. pageBusy: it is dragging the card or seeking, and must keep
+// the mouse even if the pointer runs off the card or the card's hide key is held.
+let cardRect = null, pageHold = false, pageBusy = false, catching = false;
 
 function pointerOverCard() {
   if (!cardRect || !win || win.isDestroyed()) return false;
@@ -157,15 +214,70 @@ function pointerOverCard() {
 
 function updateCatching() {
   if (!win || win.isDestroyed()) return;
-  const want = editing || pageHold || pointerOverCard();
+  peekHeld = peekKeyHeld(Date.now());
+  if (peekHeld && !editing && !pageBusy) setPeeking(true);
+  const over = pointerOverCard();
+  // A hidden card comes back once its key is let go and the pointer is off the card, so you can let go of the
+  // key and still click (a plain click, not Ctrl+click) where the card was.
+  if (peeking && !peekHeld && !over) setPeeking(false);
+  const want = editing || pageBusy || (!peeking && (pageHold || over));
   if (want === catching) return;
   catching = want;
   win.setIgnoreMouseEvents(!want);
   if (!want) send('pointer-left');
 }
 
+/* ---------- Hide the card while a key is held ----------
+   While the chosen modifier is held on its own, the card fades out and lets clicks through to what's under it.
+   The overlay never has the keyboard, so on each check above it asks Windows which keys are down. */
+let GetAsyncKeyState = null;
+try {
+  GetAsyncKeyState = require('koffi').load('user32.dll').func('short __stdcall GetAsyncKeyState(int vKey)');
+} catch (e) {
+  console.error('[keys] Hiding the card with a key is unavailable:', e.message);
+}
+const MODIFIER_KEYS = { ctrl: 0x11, shift: 0x10, alt: 0x12 };
+const isDown = (vk) => (GetAsyncKeyState(vk) & 0x8000) !== 0;
+
+/** 'ctrl', 'shift' or 'alt' when just that one is down, 'up' when none is, 'busy' when it's part of a shortcut. */
+function modifierAlone() {
+  const down = Object.keys(MODIFIER_KEYS).filter((k) => isDown(MODIFIER_KEYS[k]));
+  if (!down.length) return 'up';
+  if (down.length > 1) return 'busy'; // Ctrl+Alt for the overlay's own shortcuts, AltGr
+  // Any other key down means a shortcut like Ctrl+C. 0x01-0x06 are the mouse buttons, which may be down: you
+  // click while holding the key.
+  for (let vk = 0x08; vk <= 0xfe; vk++) {
+    if ((vk >= 0x10 && vk <= 0x12) || (vk >= 0xa0 && vk <= 0xa5)) continue; // the modifiers themselves
+    if (isDown(vk)) return 'busy';
+  }
+  return down[0];
+}
+
+// Some keyboards (or their software) report a held key as quickly going up and down again, many times a
+// second. So a key only counts as let go once it has stayed up for 250 ms, and it counts as held (not tapped)
+// once it is still down 150 ms after it was first pressed, so quick shortcuts don't make the card blink.
+let heldKey = 'none', heldSince = 0, lastDown = 0, peekHeld = false, peeking = false;
+
+function peekKeyHeld(now) {
+  if (!GetAsyncKeyState || !MODIFIER_KEYS[settings.peekKey]) { heldKey = 'none'; return false; }
+  const key = modifierAlone();
+  if (key === 'busy') heldKey = 'none';
+  else if (key !== 'up') {
+    if (key !== heldKey) { heldKey = key; heldSince = now; }
+    lastDown = now;
+  } else if (heldKey !== 'none' && now - lastDown >= 250) heldKey = 'none';
+  return heldKey === settings.peekKey && lastDown - heldSince >= 150;
+}
+
+function setPeeking(on) {
+  if (on === peeking) return;
+  peeking = on;
+  send('peek', on);
+}
+
 function setEditing(on) {
   editing = on;
+  if (on) setPeeking(false);
   updateCatching();
   send('edit', on);
   buildMenu();
@@ -324,8 +436,10 @@ async function lookUp(state, force = false) {
   lookingFor = key;
   const publish = (value) => {
     lastLyrics = { key, ...value };
+    if (value.recognised) recognised.set(key, value.recognised);
     if (lookingFor === key) send('lyrics', lastLyrics);
     refreshPanel();
+    if (value.status === 'none' || value.status === 'unsynced') recogniseSong(state);
   };
   if (!state.title) return publish({ status: 'none', lines: [] });
   if (!force && lyricsCache.has(key)) return publish(lyricsCache.get(key));
@@ -352,7 +466,106 @@ async function lookUp(state, force = false) {
   }
 }
 
-const trackOf = (state) => ({ title: state.title, artist: state.artist, duration: state.end - state.start });
+// The song as the player names it, or as Shazam recognised it.
+const trackOf = (state) => {
+  const r = recognised.get(state.key);
+  return { title: r?.title ?? state.title, artist: r?.artist ?? state.artist, duration: state.end - state.start };
+};
+
+/* ---------- Recognising songs without lyrics ----------
+   When no lyrics are found, the name the player gives is often the problem (a YouTube video title, a re-upload,
+   a mix). Then the app records ~11 s of what the computer plays and asks Shazam (shazam.js) what the song really
+   is, and looks the lyrics up again under that name. Recording happens in a hidden page (listen.html), the only
+   page allowed to capture the computer's sound. */
+const LISTEN_MS = 11000, AUTO_TRIES = 3, RETRY_MS = 15000;
+const recognised = new Map(); // player's song key -> { title, artist } from Shazam
+const recogniseTries = new Map(); // player's song key -> automatic attempts so far
+let listenWin = null, recognising = null; // recognising: the song key being listened to
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function listenWindow() {
+  if (listenWin && !listenWin.isDestroyed()) return listenWin;
+  const w = new BrowserWindow({
+    show: false, width: 200, height: 100, skipTaskbar: true,
+    webPreferences: { contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
+  });
+  listenWin = w;
+  w.on('closed', () => { if (listenWin === w) listenWin = null; });
+  await w.loadFile(path.join(__dirname, 'listen.html'));
+  return w;
+}
+
+/** Lets only the hidden listening page record, and only the computer's sound ("loopback"). */
+function allowListening() {
+  session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
+    const wc = listenWin && !listenWin.isDestroyed() ? listenWin.webContents : null;
+    const fromListen = wc && request.frame && request.frame.processId === wc.getProcessId() && request.frame.routingId === wc.mainFrame.routingId;
+    if (!fromListen) return callback({});
+    desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } })
+      .then((sources) => callback(sources[0] ? { video: sources[0], audio: 'loopback' } : {}))
+      .catch(() => callback({}));
+  });
+}
+
+/**
+ * Listens to the playing song and, when Shazam knows it, looks its lyrics up under the recognised name.
+ * Automatic (no lyrics found): up to three tries per song, 15 s apart, as one clip may catch an intro, a quiet
+ * part or a bit an altered upload changed. Manual (the "Recognise song" button): always, and it replaces lyrics
+ * already shown.
+ */
+async function recogniseSong(state, manual = false) {
+  const key = state?.key;
+  if (!key || !state.title) return;
+  if (recognising) { if (manual) send('toast', 'Already listening…'); return; }
+  const tries = recogniseTries.get(key) || 0;
+  if (!manual && (!settings.recognise || tries >= AUTO_TRIES)) return;
+  if (!manual) recogniseTries.set(key, tries + 1);
+  const still = () => lastState?.key === key;
+  const lastTry = manual || tries + 1 >= AUTO_TRIES;
+  const again = () => { if (!lastTry) setTimeout(() => { if (still() && lastLyrics?.key === key && lastLyrics.status !== 'found') recogniseSong(lastState); }, RETRY_MS); };
+  recognising = key;
+  refreshPanel();
+  try {
+    while (still() && lastState.status !== 'Playing') await wait(1000); // a paused song is only silence
+    if (!still()) return;
+    if (manual || tries === 0) send('toast', 'Listening to recognise this song…');
+    const w = await listenWindow();
+    const { samples, peak } = await w.webContents.executeJavaScript(`record(${LISTEN_MS})`, true);
+    if (!still()) return;
+    if (peak < 0.01) {
+      if (lastTry) send('toast', "Couldn't hear anything playing");
+      return again();
+    }
+    const match = await shazam.recognise(Int16Array.from(samples));
+    console.log(`[recognise] "${state.title}": ${match ? `${match.artist} – ${match.title}` : 'no match'} (loudest ${peak.toFixed(2)})`);
+    if (!still()) return;
+    if (!match) {
+      if (lastTry) send('toast', "Couldn't recognise this song");
+      return again();
+    }
+    const name = match.artist ? `${match.artist} – ${match.title}` : match.title;
+    recognised.set(key, { title: match.title, artist: match.artist });
+    versionsCache.delete(key); // "Other lyrics" should search under the new name too
+    const result = await findLyrics(trackOf(state));
+    if (!still()) return;
+    if (!result?.lines?.length) return send('toast', `Recognised “${name}”, but found no synced lyrics for it`);
+    const value = {
+      status: 'found', lines: result.lines, source: result.source, pick: result.pick, provider: result.provider,
+      recognised: { title: match.title, artist: match.artist },
+    };
+    lyricsCache.set(key, value);
+    saveLyrics(state, value);
+    lastLyrics = { key, ...value };
+    if (lookingFor === key) send('lyrics', lastLyrics);
+    send('toast', `Recognised: ${name}`);
+  } catch (err) {
+    console.error('Recognising the song failed:', err.message);
+    if (manual) send('toast', "Couldn't recognise this song right now");
+  } finally {
+    recognising = null;
+    refreshPanel();
+  }
+}
 
 async function versionsOf(state) {
   if (!versionsCache.has(state.key)) versionsCache.set(state.key, findVersions(trackOf(state)).catch((err) => { versionsCache.delete(state.key); throw err; }));
@@ -451,13 +664,15 @@ function panelState() {
   const lyrics = s && lastLyrics?.key === s.key ? lastLyrics : null;
   return {
     settings,
-    options: { looks: LOOKS, motions: MOTIONS, fonts: FONTS, positions: POSITIONS },
+    options: { looks: LOOKS, motions: MOTIONS, fonts: FONTS, entrances: ENTRANCES, sides: SIDES, aligns: ALIGNS, peekKeys: PEEK_KEYS },
     coverColour: coverColour?.colour || null,
     song: s && {
       title: s.title || 'Unknown title', artist: s.artist || '', lead: songLead(),
       picked: !!settings.picks[songKey(s)],
       status: lyrics?.status || 'loading',
       provider: lyrics?.status === 'found' ? lyrics.provider || 'LRCLIB' : null,
+      listening: recognising === s.key,
+      recognisedAs: recognised.get(s.key) || null,
     },
   };
 }
@@ -479,8 +694,9 @@ function togglePanel(at) {
   if (panel && !panel.isDestroyed()) return closePanel();
   const area = screen.getPrimaryDisplay().workArea;
   const card = Number.isFinite(at?.x) && Number.isFinite(at?.y) ? at : settings.card;
+  const cardWidth = Number.isFinite(at?.width) ? at.width : 340 * settings.cardScale;
   // Next to the card, or on its left when there is no room on the right.
-  let x = area.x + card.x + 340, side = 'right';
+  let x = area.x + card.x + cardWidth, side = 'right';
   if (x + PANEL_WIDTH > area.x + area.width) { x = area.x + card.x - PANEL_WIDTH; side = 'left'; }
   const w = new BrowserWindow({
     x: Math.max(area.x, Math.round(x)), y: area.y + Math.max(0, Math.round(card.y) - 10), width: PANEL_WIDTH, height: 600,
@@ -508,13 +724,30 @@ function sizePanel(height) {
 }
 
 function onPanelAction(name, value) {
-  const choices = { look: LOOKS, motion: MOTIONS, colourMode: COLOUR_MODES, font: FONTS, bigPosition: POSITIONS };
+  const choices = {
+    look: LOOKS, motion: MOTIONS, colourMode: COLOUR_MODES, font: FONTS, entrance: ENTRANCES,
+    cardLyricsSide: SIDES, bigAlign: ALIGNS, peekKey: PEEK_KEYS,
+  };
   const isHex = (v) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
   switch (name) {
     case 'toggle':
       if (value === 'enabled') toggleEnabled();
-      else if (['showCard', 'showCardLyrics', 'showBig'].includes(value)) update({ [value]: !settings[value] });
+      else if (TOGGLES.includes(value)) update({ [value]: !settings[value] });
       break;
+    case 'set': setValue(value?.key, value?.value); break;
+    case 'reset-layout': {
+      const keys = ['card', 'cardScale', 'cardOpacity', 'cardLyricsSide', 'cardNext', 'bigPos', 'bigWidth', 'bigSize', 'bigAlign'];
+      update(Object.fromEntries(keys.map((k) => [k, DEFAULTS[k]])));
+      send('toast', 'Layout back to how it started');
+      break;
+    }
+    case 'reset-all': {
+      // Every setting back to its default. Per-song timing fixes, lyrics picks and recent colours stay.
+      const { offsets, picks, history, ...rest } = DEFAULTS;
+      update(structuredClone(rest));
+      send('toast', 'All settings back to the defaults');
+      break;
+    }
     case 'choose':
       // Colours from the picker come as #rrggbb, and switch to the mode they belong to so they show straight away.
       if (value?.key === 'accent' && isHex(value.value)) chooseAccent(value.value.toLowerCase(), !!value.commit);
@@ -529,6 +762,7 @@ function onPanelAction(name, value) {
     case 'prev': tryOtherLyrics(-1); break;
     case 'first': useFirstLyrics(); break;
     case 'search': if (lastState?.active) lookUp(lastState, true); break;
+    case 'recognise': if (lastState?.active) recogniseSong(lastState, true); else send('toast', 'Nothing is playing'); break;
     case 'move': panel?.close(); setEditing(true); break;
     case 'quit': app.quit(); break;
     case 'close': closePanel(); break;
@@ -577,14 +811,17 @@ function start() {
   registerHotkeys();
   buildMenu();
   startHelper();
+  allowListening();
 
   ipcMain.on('card-moved', (_e, pos) => {
     if (Number.isFinite(pos?.x) && Number.isFinite(pos?.y)) update({ card: { x: Math.round(pos.x), y: Math.round(pos.y) } });
   });
+  // Sizes and the big lyrics' place, changed by dragging on the overlay while arranging.
+  ipcMain.on('set', (e, msg) => { if (win && e.sender === win.webContents) setValue(msg?.key, msg?.value); });
   ipcMain.on('edit-done', () => setEditing(false));
   ipcMain.on('open-settings', (_e, at) => togglePanel(at));
   ipcMain.on('control', (e, msg) => { if (win && e.sender === win.webContents) control(msg); });
-  ipcMain.on('ui-hover', (_e, on) => { pageHold = !!on; updateCatching(); });
+  ipcMain.on('ui-hover', (_e, on) => { pageHold = !!on; pageBusy = on === 'busy'; updateCatching(); });
   ipcMain.on('card-rect', (_e, r) => {
     cardRect = r && [r.x, r.y, r.width, r.height].every(Number.isFinite) ? r : null;
     updateCatching();

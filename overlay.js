@@ -3,7 +3,12 @@ const api = window.overlay;
 const $ = (s) => document.querySelector(s);
 const card = $('#card'), panel = $('#panel'), big = $('#big');
 
-let settings = { enabled: true, showCard: true, showCardLyrics: true, showBig: true, look: 'depth', colourMode: 'accent', motion: 'none', font: 'clean', accent: '#ffb648', bigPosition: 'center', offsets: {}, card: { x: 24, y: 24 } };
+let settings = {
+  enabled: true, showCard: true, showCardLyrics: true, showBig: true, look: 'depth', colourMode: 'accent', motion: 'none',
+  font: 'clean', accent: '#ffb648', entrance: 'rise', bigPos: { x: 0.5, y: 0.44 }, bigWidth: 0.84, bigSize: 1, bigAlign: 'center',
+  offsets: {}, card: { x: 24, y: 24 }, cardScale: 1, cardOpacity: 0.84, cardLyricsSide: 'bottom', cardNext: 2,
+  showCover: true, showArtist: true, showProgress: true, showControls: true,
+};
 let track = null, lyrics = { key: null, status: 'idle', lines: [] };
 let anchorPos = 0, anchorMs = 0, playing = false, idleSince = Date.now();
 let shownIdx = null, shownKey = null, panelSig = '', editing = false, lastCover = null;
@@ -138,7 +143,8 @@ function renderPanel(lines, idx, t) {
       el.style.setProperty('--steps', Math.max(1, Math.round(dur * 60)));
       el.style.setProperty('--delay', `${(cur.t - t).toFixed(2)}s`);
       let shown = 0;
-      for (let i = idx + 1; i < lines.length && shown < 2; i++) if (lines[i].text) { add('next', lines[i].text); shown++; }
+      const coming = settings.cardNext ?? 2;
+      for (let i = idx + 1; i < lines.length && shown < coming; i++) if (lines[i].text) { add('next', lines[i].text); shown++; }
     } else if (nextI >= 0) {
       add('next', lines[nextI].text);
     }
@@ -158,8 +164,9 @@ function renderPanel(lines, idx, t) {
    even when the pointer runs ahead of the card) or that the pointer has left. */
 const gear = $('#gear'), bar = $('#bar'), playBtn = $('#play');
 let overUi = false, seeking = null, drag = null;
+// Sends false, true (the pointer is on the card) or 'busy' (dragging the card or seeking: hold on no matter what).
 function setOverUi(on) {
-  if (seeking || drag) on = true;
+  if (seeking || drag) on = 'busy';
   if (on === overUi) return;
   overUi = on;
   api.send('ui-hover', on);
@@ -167,7 +174,7 @@ function setOverUi(on) {
 const clickable = (el) => !!el?.closest?.('#card') && !card.classList.contains('hidden');
 gear.addEventListener('click', () => {
   const r = card.getBoundingClientRect();
-  api.send('open-settings', { x: Math.round(r.left), y: Math.round(r.top) });
+  api.send('open-settings', { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width) });
 });
 
 // Also true while the mouse is on the card, so a card hidden after a pause comes back to be played again.
@@ -180,7 +187,7 @@ addEventListener('mousemove', (e) => {
 });
 document.addEventListener('mouseleave', () => { mouseOnCard = false; setOverUi(false); update(); });
 // Main stopped catching the mouse (the pointer left the card without us seeing it go).
-api.on('pointer-left', () => { if (mouseOnCard) { mouseOnCard = false; update(); } });
+api.on('pointer-left', () => { setOverUi(false); if (mouseOnCard) { mouseOnCard = false; update(); } });
 
 /** Tells main where the card is, or null while it can't show, so the mouse is only caught over a card that
     can appear. Sent only when it changes. */
@@ -336,13 +343,39 @@ function applyAccent() {
 function applySettings(s) {
   settings = s;
   applyAccent();
-  document.documentElement.style.setProperty('--big-top', s.bigPosition === 'bottom' ? '76%' : '44%');
-  document.body.className = `font-${s.font}`;
-  big.className = `big look-${s.look} colour-${s.colourMode} motion-${s.motion}${big.classList.contains('fade') ? ' fade' : ''}`;
+  for (const c of [...document.body.classList]) if (c.startsWith('font-')) document.body.classList.remove(c);
+  document.body.classList.add(`font-${s.font}`);
+  const bigOff = !(s.enabled && s.showBig);
+  big.className = `big look-${s.look} colour-${s.colourMode} motion-${s.motion} entrance-${s.entrance || 'rise'} align-${s.bigAlign || 'center'}`
+    + `${big.classList.contains('fade') ? ' fade' : ''}${bigOff ? ' off' : ''}`;
+  // The card: its parts, where its lyrics go, how solid and how big.
   card.classList.toggle('no-lyrics', s.showCardLyrics === false);
+  for (const [cls, on] of [['no-cover', s.showCover], ['no-artist', s.showArtist], ['no-progress', s.showProgress], ['no-controls', s.showControls]]) {
+    card.classList.toggle(cls, on === false);
+  }
+  for (const side of ['bottom', 'top', 'left', 'right']) card.classList.toggle(`side-${side}`, (s.cardLyricsSide || 'bottom') === side);
+  const alpha = s.cardOpacity ?? 0.84;
+  card.style.setProperty('--card-alpha', alpha);
+  card.classList.toggle('clear', alpha < 0.45);
+  if (!sizeDrag) card.style.setProperty('--card-scale', s.cardScale || 1);
   placeCard(s.card.x, s.card.y);
+  if (!bigDrag) placeBig(bigLayout());
   panelSig = ''; shownIdx = null; // timing or style may have changed
   update();
+}
+
+/* ---------- Where the big lyrics go ---------- */
+const bigLayout = () => ({
+  x: settings.bigPos?.x ?? 0.5, y: settings.bigPos?.y ?? 0.44, w: settings.bigWidth ?? 0.84, size: settings.bigSize ?? 1,
+});
+
+/** Puts the big lyrics there, keeping the whole box on screen. */
+function placeBig(l) {
+  big.style.setProperty('--big-w', l.w);
+  big.style.setProperty('--big-size', l.size);
+  const halfW = Math.min(0.5, l.w / 2), halfH = Math.min(0.5, big.offsetHeight / innerHeight / 2);
+  big.style.setProperty('--big-x', Math.min(1 - halfW, Math.max(halfW, l.x)).toFixed(4));
+  big.style.setProperty('--big-y', Math.min(1 - halfH, Math.max(halfH, l.y)).toFixed(4));
 }
 
 function placeCard(x, y) {
@@ -351,7 +384,7 @@ function placeCard(x, y) {
   card.style.top = `${Math.min(maxY, Math.max(0, y))}px`;
   // The grid only shows near the card, centred on its main part (not the hint under it).
   grid.style.setProperty('--gx', `${card.offsetLeft + card.offsetWidth / 2}px`);
-  grid.style.setProperty('--gy', `${card.offsetTop + card.querySelector('.now').offsetHeight / 2 + 40}px`);
+  grid.style.setProperty('--gy', `${card.offsetTop + card.querySelector('.now').getBoundingClientRect().height / 2 + 40}px`);
   sendCardRect();
 }
 const grid = $('#grid');
@@ -392,7 +425,7 @@ function showGuide(el, at, side) {
    few pixels, so a plain click on the card does nothing. */
 card.addEventListener('pointerdown', (e) => {
   if (e.button !== 0 || card.classList.contains('hidden')) return;
-  if (e.target.closest('button') || e.target.closest('.bar:not(.off)')) return;
+  if (e.target.closest('button') || e.target.closest('.bar:not(.off)') || e.target.closest('.handle')) return;
   drag = { dx: e.clientX - card.offsetLeft, dy: e.clientY - card.offsetTop, x0: e.clientX, y0: e.clientY, moved: false };
   card.setPointerCapture(e.pointerId);
   setOverUi(true);
@@ -430,6 +463,85 @@ card.addEventListener('pointercancel', endDrag);
 card.addEventListener('lostpointercapture', endDrag);
 $('#done').addEventListener('click', () => api.send('edit-done'));
 
+/* ---------- Resizing while arranging ----------
+   The card's corner sets its size. The big lyrics' frame moves by dragging it (snapping like the card), its
+   sides set how wide the lines run, and its corner sets the text size. What you see changes as you drag; the
+   new value is saved when you let go. */
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+let sizeDrag = null, bigDrag = null;
+
+/** Calls `move` with each pointer move and `end` once when let go, with the pointer captured on `el`. */
+function follow(el, e, move, end) {
+  el.setPointerCapture(e.pointerId);
+  document.body.classList.add('dragging');
+  const onMove = (ev) => move(ev);
+  const onEnd = () => {
+    el.removeEventListener('pointermove', onMove);
+    el.removeEventListener('pointerup', onEnd);
+    el.removeEventListener('lostpointercapture', onEnd);
+    document.body.classList.remove('dragging');
+    end();
+  };
+  el.addEventListener('pointermove', onMove);
+  el.addEventListener('pointerup', onEnd);
+  el.addEventListener('lostpointercapture', onEnd);
+}
+
+const cardSize = $('#card-size');
+cardSize.addEventListener('pointerdown', (e) => {
+  if (!editing || e.button !== 0) return;
+  e.stopPropagation();
+  const x0 = e.clientX, w0 = card.offsetWidth, s0 = settings.cardScale || 1;
+  sizeDrag = { scale: s0 };
+  follow(cardSize, e, (ev) => {
+    sizeDrag.scale = Math.round(clamp(s0 * (w0 + ev.clientX - x0) / w0, 0.6, 2) * 100) / 100;
+    card.style.setProperty('--card-scale', sizeDrag.scale);
+    placeCard(card.offsetLeft, card.offsetTop);
+  }, () => {
+    const { scale } = sizeDrag;
+    sizeDrag = null;
+    if (scale !== s0) api.send('set', { key: 'cardScale', value: scale });
+    placeCard(card.offsetLeft, card.offsetTop);
+    api.send('card-moved', { x: card.offsetLeft, y: card.offsetTop });
+  });
+});
+
+big.addEventListener('pointerdown', (e) => {
+  if (!editing || e.button !== 0 || big.classList.contains('off')) return;
+  const kind = e.target.dataset?.big || 'move';
+  const r = big.getBoundingClientRect(), start = bigLayout();
+  const cx = r.left + r.width / 2, cy = r.top + r.height / 2, x0 = e.clientX, y0 = e.clientY;
+  const live = bigDrag = { ...start };
+  follow(big, e, (ev) => {
+    if (kind === 'move') {
+      let left = r.left + ev.clientX - x0, top = r.top + ev.clientY - y0, lineX = null, lineY = null;
+      if (!ev.altKey) {
+        ({ pos: left, line: lineX } = snapAxis(left, r.width, innerWidth));
+        ({ pos: top, line: lineY } = snapAxis(top, r.height, innerHeight));
+      }
+      live.x = (left + r.width / 2) / innerWidth;
+      live.y = (top + r.height / 2) / innerHeight;
+      showGuide(guideX, lineX, 'left');
+      showGuide(guideY, lineY, 'top');
+    } else if (kind === 'width') {
+      live.w = Math.round(clamp((Math.abs(ev.clientX - cx) * 2) / innerWidth, 0.25, 0.98) * 100) / 100;
+    } else {
+      const from = Math.max(10, Math.abs(y0 - cy));
+      live.size = Math.round(clamp(start.size * (Math.abs(ev.clientY - cy) / from), 0.4, 2.5) * 100) / 100;
+    }
+    placeBig(live);
+  }, () => {
+    bigDrag = null;
+    showGuide(guideX, null);
+    showGuide(guideY, null);
+    // Save where it really ended up (kept on screen), not where the pointer pushed it.
+    const at = { x: parseFloat(big.style.getPropertyValue('--big-x')), y: parseFloat(big.style.getPropertyValue('--big-y')) };
+    if (kind === 'move' && (at.x !== start.x || at.y !== start.y)) api.send('set', { key: 'bigPos', value: at });
+    if (live.w !== start.w) api.send('set', { key: 'bigWidth', value: live.w });
+    if (live.size !== start.size) api.send('set', { key: 'bigSize', value: live.size });
+  });
+});
+
 let toastTimer;
 function toast(msg) {
   const el = $('#toast');
@@ -446,6 +558,7 @@ api.on('cover', (c) => { lastCover = c; if (track && c.key === track.key) $('#co
 api.on('lyrics', (l) => { lyrics = l; panelSig = ''; shownIdx = null; update(); });
 api.on('edit', (on) => { editing = on; card.classList.toggle('editing', on); document.body.classList.toggle('moving', on); panelSig = ''; if (!on && !track) panel.replaceChildren(); update(); });
 api.on('toast', toast);
+api.on('peek', (on) => document.body.classList.toggle('peek', on));
 api.on('panel-open', (open) => gear.classList.toggle('open', open));
 api.on('sync-now', () => {
   if (!track || lyrics.key !== track.key || lyrics.status !== 'found') return toast('No synced lyrics to line up');
@@ -456,5 +569,5 @@ api.on('sync-now', () => {
   if (!target) return toast('No lyric line to line up');
   api.send('set-offset', { key: songKey(track), lead: Math.round((target.t - t) * 100) / 100 });
 });
-addEventListener('resize', () => placeCard(settings.card.x, settings.card.y));
+addEventListener('resize', () => { placeCard(settings.card.x, settings.card.y); placeBig(bigLayout()); });
 update();

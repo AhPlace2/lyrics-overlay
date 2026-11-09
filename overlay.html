@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src data:">
 <title>Lyrics Overlay</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Instrument+Serif:ital@0;1&family=Pixelify+Sans:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Instrument+Serif:ital@0;1&family=Pixelify+Sans:wght@400;600;700&family=Bebas+Neue&family=Nunito:wght@600;800;900&family=Caveat:wght@600;700&display=swap">
 <link rel="stylesheet" href="overlay.css">
 </head>
 <body class="font-clean">
@@ -12,6 +12,7 @@
   <div id="guide-x" class="guide guide-x"></div>
   <div id="guide-y" class="guide guide-y"></div>
   <div id="card" class="card hidden">
+    <div id="box" class="box">
     <div class="now">
       <div class="cover"><img id="cover" alt=""></div>
       <div class="meta">
@@ -43,9 +44,15 @@
       </div>
     </div>
     <div id="panel" class="panel"></div>
-    <div class="edit-hint"><span>Drag the card where you want it<small>Snaps to lines and the grid. Hold Alt to move freely.</small></span> <button id="done" type="button">Done</button></div>
+    <b id="card-size" class="handle corner" title="Drag to resize the card"></b>
+    </div>
+    <div class="edit-hint"><span>Drag the card and the big lyrics where you want them<small>Corners and sides resize. Snaps to lines and the grid; hold Alt to move freely.</small></span> <button id="done" type="button">Done</button></div>
   </div>
-  <div id="big" class="big look-depth colour-accent motion-none"></div>
+  <div id="big" class="big look-depth colour-accent motion-none entrance-rise">
+    <b class="handle side left" data-big="width" title="Drag to make the lines wider or narrower"></b>
+    <b class="handle side right" data-big="width" title="Drag to make the lines wider or narrower"></b>
+    <b class="handle corner" data-big="size" title="Drag to change the text size"></b>
+  </div>
   <div id="toast" class="toast"></div>
   <script src="overlay.js"></script>
 </body>

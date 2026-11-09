@@ -28,11 +28,11 @@ body { padding: 10px 14px 18px; }
 
 /* Tabs: a segmented control with a highlight that slides to the chosen tab. */
 .tabs {
-  position: relative; display: grid; grid-template-columns: repeat(3, 1fr);
+  position: relative; display: grid; grid-template-columns: repeat(4, 1fr);
   margin: 0 12px 4px; padding: 3px; border-radius: 9px; background: rgba(255, 255, 255, .06);
 }
 .tabs .ind {
-  position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / 3); border-radius: 7px;
+  position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / 4); border-radius: 7px;
   background: rgba(255, 255, 255, .13); box-shadow: 0 1px 4px rgba(0, 0, 0, .3);
   transform: translateX(calc(var(--tab, 0) * 100%)); transition: transform .28s cubic-bezier(.3, .8, .25, 1);
 }
@@ -93,9 +93,32 @@ input[type=checkbox]:checked::after { transform: translateX(14px); background: #
 .buttons button.quiet, .foot button.quiet { background: none; color: var(--dim); }
 .buttons button.quiet:hover, .foot button.quiet:hover { color: var(--text); background: rgba(255, 255, 255, .08); }
 .foot button[data-act="quit"]:hover { color: #fff; background: #e5484d; }
+#reset-all { margin: 0 auto 0 6px; }
+#reset-all.confirm, #reset-all.confirm:hover { color: #fff; background: #e5484d; }
 button:disabled { opacity: .35; cursor: default; pointer-events: none; }
 .chips .font-serif { font: italic 15px "Instrument Serif", Georgia, serif; padding: 4px 10px; }
 .chips .font-pixel { font: 600 12px "Pixelify Sans", Consolas, monospace; }
+.chips .font-bold { font: 15px/1 "Bebas Neue", Impact, sans-serif; letter-spacing: .04em; padding: 6px 10px 5px; }
+.chips .font-round { font: 800 12px "Nunito", sans-serif; }
+.chips .font-hand { font: 700 16px/1 "Caveat", cursive; padding: 4px 10px; }
+
+/* Layout tab */
+.group { margin: 6px 0 2px; font: 800 11px "Inter", sans-serif; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+.group ~ .group { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.slider { display: block; padding: 4px 0 6px; }
+.slider > span { display: block; margin-bottom: 4px; color: var(--dim); }
+.slider em { font-style: normal; color: var(--text); margin-left: 4px; font-variant-numeric: tabular-nums; }
+input[type=range] {
+  appearance: none; width: 100%; height: 16px; margin: 0; background: none; cursor: pointer;
+}
+input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: rgba(255, 255, 255, .16); }
+input[type=range]::-webkit-slider-thumb {
+  appearance: none; width: 14px; height: 14px; margin-top: -5px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 0 3px var(--panel); transition: transform .12s;
+}
+input[type=range]:hover::-webkit-slider-thumb, input[type=range]:active::-webkit-slider-thumb { transform: scale(1.2); }
+input[type=range]:focus { outline: none; }
+.arrange { margin-top: 10px; }
 
 .swatches { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
 .swatches button {

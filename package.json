@@ -13,6 +13,7 @@
     "electron-builder": "^26.18.0"
   },
   "author": "AhPlace2",
+  "license": "AGPL-3.0-or-later",
   "build": {
     "appId": "com.ahplace2.lyricsoverlay",
     "productName": "Lyrics Overlay",
@@ -51,5 +52,8 @@
       "de"
     ],
     "compression": "maximum"
+  },
+  "dependencies": {
+    "koffi": "3.3.4"
   }
 }

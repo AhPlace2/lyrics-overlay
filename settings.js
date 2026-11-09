@@ -18,9 +18,41 @@ function build(options) {
   };
   chips('look', options.looks);
   chips('motion', options.motions);
+  chips('entrance', options.entrances);
   chips('font', options.fonts, (v) => `font-${v}`);
-  chips('bigPosition', options.positions.map(([v, l]) => [v, l.replace('Middle of the screen', 'Middle')]));
+  chips('cardLyricsSide', options.sides);
+  chips('bigAlign', options.aligns);
+  chips('peekKey', options.peekKeys);
   built = true;
+}
+
+/* ---------- Sliders ----------
+   Percent sliders hold the setting × 100. While one is dragged it is sent at most every 80 ms (each change is
+   saved to disk), and changes coming back from main don't move it under the pointer. */
+const sliding = new Set();
+const isPct = (input) => input.dataset.unit === '%';
+const sliderValue = (input) => Number(input.value) / (isPct(input) ? 100 : 1);
+function showOut(input, v) {
+  const out = $(`[data-out="${input.dataset.set}"]`);
+  if (out) out.textContent = isPct(input) ? `${Math.round(v * 100)}%` : String(v);
+}
+for (const input of $$('input[data-set]')) {
+  const key = input.dataset.set;
+  let sentAt = 0, timer = null;
+  const send = (final) => {
+    clearTimeout(timer);
+    const go = () => { sentAt = Date.now(); bridge.act('set', { key, value: sliderValue(input) }); };
+    if (final || Date.now() - sentAt > 80) go(); else timer = setTimeout(go, 80);
+  };
+  input.addEventListener('pointerdown', () => sliding.add(key));
+  input.addEventListener('input', () => { showOut(input, sliderValue(input)); send(false); });
+  input.addEventListener('change', () => { sliding.delete(key); send(true); });
+  input.addEventListener('pointerup', () => sliding.delete(key));
+}
+
+// Quick places for the big lyrics (centred across, at that height).
+for (const b of $$('#presets button')) {
+  b.addEventListener('click', () => bridge.act('set', { key: 'bigPos', value: { x: 0.5, y: Number(b.dataset.y) } }));
 }
 
 /* ---------- Colour ----------
@@ -183,13 +215,25 @@ function render(state) {
   for (const box of $$('[data-choose]')) {
     for (const b of box.children) b.classList.toggle('on', settings[box.dataset.choose] === b.dataset.value);
   }
+  for (const input of $$('input[data-set]')) {
+    const v = settings[input.dataset.set];
+    if (!Number.isFinite(v)) continue;
+    if (!sliding.has(input.dataset.set)) input.value = Math.round(v * (isPct(input) ? 100 : 1));
+    showOut(input, v);
+  }
+  const pos = settings.bigPos || { x: 0.5, y: 0.44 };
+  for (const b of $$('#presets button')) b.classList.toggle('on', Math.abs(pos.x - 0.5) < 0.01 && Math.abs(pos.y - Number(b.dataset.y)) < 0.01);
   renderColour(state);
   $('#song').classList.toggle('hidden', !song);
   $('#nothing').classList.toggle('hidden', !!song);
   if (song) {
     $('#song-name').textContent = song.artist ? `${song.title} · ${song.artist}` : song.title;
     $('#lead').textContent = song.lead === 0 ? 'in sync' : `${Math.abs(song.lead).toFixed(2)} s ${song.lead > 0 ? 'earlier' : 'later'}`;
-    $('#source').textContent = song.provider ? `from ${song.provider}` : song.status === 'loading' ? 'looking…' : 'none found';
+    $('#source').textContent = song.listening ? 'listening…' : song.provider ? `from ${song.provider}` : song.status === 'loading' ? 'looking…' : 'none found';
+    const r = song.recognisedAs;
+    $('#recognised').classList.toggle('hidden', !r);
+    if (r) $('#recognised').textContent = `Recognised as ${r.artist ? `${r.artist} – ${r.title}` : r.title}`;
+    $('[data-act="recognise"]').disabled = song.listening;
     const synced = song.status === 'found';
     $('[data-act="reset"]').disabled = song.lead === 0;
     $('[data-act="sync"]').disabled = !synced;
@@ -200,6 +244,23 @@ function render(state) {
 for (const box of $$('input[data-toggle]')) box.addEventListener('change', () => bridge.act('toggle', box.dataset.toggle));
 for (const b of $$('[data-act]')) b.addEventListener('click', () => bridge.act(b.dataset.act));
 $('#close').addEventListener('click', () => bridge.act('close'));
+
+// Reset all asks once: the first click turns the button red, a second click within 3 s resets.
+{
+  const b = $('#reset-all');
+  let timer = 0;
+  const calm = () => { clearTimeout(timer); b.classList.remove('confirm'); b.textContent = 'Reset all'; };
+  b.addEventListener('click', () => {
+    if (!b.classList.contains('confirm')) {
+      b.classList.add('confirm');
+      b.textContent = 'Click again to reset';
+      timer = setTimeout(calm, 3000);
+      return;
+    }
+    calm();
+    bridge.act('reset-all');
+  });
+}
 addEventListener('keydown', (e) => { if (e.key === 'Escape') bridge.act('close'); });
 
 /* ---------- Window size ----------
@@ -210,7 +271,7 @@ const bodyHeight = () => Math.ceil(document.body.getBoundingClientRect().height)
 new ResizeObserver(() => { if (!sizeLock) bridge.act('size', bodyHeight()); }).observe(document.body);
 
 /* ---------- Tabs ---------- */
-const TABS = ['show', 'look', 'song'];
+const TABS = ['show', 'layout', 'look', 'song'];
 const stage = $('#stage');
 let tab = null, tabDone = null;
 
@@ -245,7 +306,7 @@ function showTab(name, animate = true) {
 }
 for (const b of $$('[data-tab]')) b.addEventListener('click', () => showTab(b.dataset.tab));
 addEventListener('keydown', (e) => { // Ctrl+Tab / Ctrl+Shift+Tab move between tabs
-  if (e.key === 'Tab' && e.ctrlKey) { e.preventDefault(); showTab(TABS[(TABS.indexOf(tab) + (e.shiftKey ? 2 : 1)) % 3]); }
+  if (e.key === 'Tab' && e.ctrlKey) { e.preventDefault(); showTab(TABS[(TABS.indexOf(tab) + (e.shiftKey ? TABS.length - 1 : 1)) % TABS.length]); }
 });
 let lastTab = 'show';
 try { lastTab = localStorage.getItem('tab') || 'show'; } catch { /* first tab then */ }

@@ -12,10 +12,12 @@
   --text: #f4f4f1;
   --dim: rgba(244, 244, 241, .55);
   --font: "Inter", "Segoe UI", system-ui, sans-serif;
-  --big-top: 44%;
 }
 body.font-serif { --font: "Instrument Serif", Georgia, serif; }
 body.font-pixel { --font: "Pixelify Sans", "Consolas", monospace; }
+body.font-bold { --font: "Bebas Neue", "Impact", sans-serif; }
+body.font-round { --font: "Nunito", "Segoe UI", sans-serif; }
+body.font-hand { --font: "Caveat", "Segoe Print", cursive; }
 
 html, body {
   margin: 0; height: 100%; overflow: hidden;
@@ -25,19 +27,48 @@ html, body {
 }
 
 /* ---------- Now playing card ---------- */
+/* --card-alpha is how solid the card's background is (0..1), --card-scale its size. The size is a CSS zoom on the
+   box inside the card, so the card itself (which is what gets placed and hit-tested) takes the zoomed size. */
 .card {
-  position: absolute; left: 24px; top: 24px; width: 340px;
+  position: absolute; left: 24px; top: 24px; z-index: 1; /* above the big lyrics where they meet */
+  --card-alpha: .84;
+  --panel: rgba(14, 14, 18, var(--card-alpha));
+  --panel-soft: rgba(14, 14, 18, calc(var(--card-alpha) * .83));
   transition: opacity .35s ease, transform .35s ease;
 }
 .card.hidden { opacity: 0; transform: translateY(-10px); }
+/* Held key: the card fades out quickly so you can click what's under it. */
+body.peek .card { opacity: 0; transition-duration: .15s; pointer-events: none; }
 .card.pop .now { animation: pop .5s cubic-bezier(.2, .9, .3, 1.2); }
 @keyframes pop { from { transform: scale(.92); opacity: 0; } to { transform: none; opacity: 1; } }
+
+.box { position: relative; display: flex; flex-direction: column; width: 340px; zoom: var(--card-scale, 1); }
+/* Where the card's lyrics go: below (default), above, or beside the song. */
+.card.side-top .box { flex-direction: column-reverse; }
+.card.side-left .box, .card.side-right .box { width: auto; align-items: flex-start; }
+.card.side-left .box { flex-direction: row-reverse; }
+.card.side-right .box { flex-direction: row; }
+.card.side-left .now, .card.side-right .now { width: 340px; box-sizing: border-box; flex: none; }
+.card.side-left .panel, .card.side-right .panel { width: 250px; box-sizing: border-box; margin-top: 0; }
+.card.side-top .panel { margin: 0 0 6px; }
+.card.side-left .panel { margin-right: 6px; }
+.card.side-right .panel { margin-left: 6px; }
+
+/* Parts of the card that can be turned off. */
+.card.no-cover .cover, .card.no-artist .artist { display: none; }
+.card.no-progress .bar, .card.no-progress .progress > span { display: none; }
+.card.no-progress .progress { justify-content: center; margin-top: 4px; }
+.card.no-controls .controls { display: none; }
+.card.no-progress.no-controls .progress { display: none; }
 
 .now {
   display: flex; gap: 12px; align-items: center;
   padding: 10px; border-radius: 10px;
-  background: var(--panel); box-shadow: 0 6px 24px rgba(0, 0, 0, .35), inset 0 0 0 1px rgba(255, 255, 255, .07);
+  background: var(--panel);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, calc(var(--card-alpha) * .42)), inset 0 0 0 1px rgba(255, 255, 255, calc(var(--card-alpha) * .085));
 }
+/* A see-through card still needs its text to read over anything. */
+.card.clear .now, .card.clear .panel { text-shadow: 0 1px 3px rgba(0, 0, 0, .85), 0 0 1px rgba(0, 0, 0, .9); }
 .cover { width: 64px; height: 64px; flex: none; border-radius: 6px; overflow: hidden; background: #24242b; }
 .cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .cover img:not([src]), .cover img[src=""] { visibility: hidden; }
@@ -46,6 +77,13 @@ html, body {
 .artist { color: var(--dim); font-size: 13px; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 body.font-serif .title { font-size: 18px; }
 body.font-serif .artist { font-size: 15px; }
+body.font-bold .title { font-weight: 400; font-size: 19px; letter-spacing: .03em; }
+body.font-bold .artist { font-size: 15px; letter-spacing: .03em; }
+body.font-bold .panel { font-size: 15px; letter-spacing: .02em; }
+body.font-bold .panel .l.cur { font-weight: 400; font-size: 18px; }
+body.font-hand .title { font-size: 19px; }
+body.font-hand .artist, body.font-hand .panel { font-size: 16px; }
+body.font-hand .panel .l.cur { font-size: 18px; }
 .progress { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px; font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums; }
 .progress > span { min-width: 30px; }
 .progress > span:last-child { text-align: right; }
@@ -138,12 +176,24 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 .dots i { width: 7px; height: 7px; border-radius: 50%; background: rgba(255, 255, 255, .22); transition: background .3s; }
 .dots i.on { background: var(--accent); }
 
-.edit-hint { display: none; margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: var(--panel); font-size: 13px; align-items: center; gap: 10px; justify-content: space-between; }
+.edit-hint {
+  display: none; margin-top: 12px; padding: 8px 10px; border-radius: 8px; background: rgba(14, 14, 18, .9);
+  font: 13px "Inter", "Segoe UI", sans-serif; align-items: center; gap: 10px; justify-content: space-between; min-width: 300px;
+}
 .edit-hint button { font: inherit; font-weight: 700; border: 0; border-radius: 6px; padding: 6px 12px; background: var(--accent); color: #111; cursor: pointer; }
 .card.editing { cursor: move; }
-.card.editing .now { outline: 2px dashed var(--accent); outline-offset: 4px; }
+.card.editing .box { outline: 2px dashed var(--accent); outline-offset: 4px; border-radius: 10px; }
 .card.editing .edit-hint { display: flex; }
 .edit-hint small { display: block; color: var(--dim); font-size: 11px; margin-top: 2px; }
+
+/* Resize handles, only while arranging. They sit on the dashed outline. */
+.handle { display: none; position: absolute; z-index: 2; background: var(--accent); box-shadow: 0 0 0 2px rgba(0, 0, 0, .5); touch-action: none; }
+body.moving .handle { display: block; }
+.handle.corner { right: -11px; bottom: -11px; width: 14px; height: 14px; border-radius: 50%; cursor: nwse-resize; }
+.handle.side { top: 50%; width: 8px; height: 36px; margin-top: -18px; border-radius: 4px; cursor: ew-resize; }
+.handle.side.left { left: -10px; }
+.handle.side.right { right: -10px; }
+.handle:hover { transform: scale(1.25); }
 
 /* Grid and guide lines while moving the card (24 px grid, a stronger line every 96 px).
    Only shows around the card and fades out with distance from it; --gx/--gy is the card's centre. */
@@ -168,21 +218,47 @@ html.idle, html.idle * { animation-play-state: paused !important; }
 .guide-y { left: 0; right: 0; height: 1px; }
 
 /* ---------- Big floating lyrics ---------- */
+/* --big-x / --big-y: where the middle of the lyrics sits (0..1 of the screen); --big-w: how wide the lines may
+   run (0..1 of the screen's width); --big-size: text size (1 = normal). The box is two lines tall; the lines
+   are centred in it, and longer ones grow out of it evenly. */
 .big {
-  position: absolute; left: 50%; top: var(--big-top); width: min(84vw, 1500px);
+  position: absolute; left: calc(var(--big-x, .5) * 100%); top: calc(var(--big-y, .44) * 100%);
+  width: calc(var(--big-w, .84) * 100vw); height: 2.6em;
+  font-size: calc(clamp(30px, 3.4vw, 64px) * var(--big-size, 1));
   transform: translate(-50%, -50%); text-align: center; pointer-events: none;
 }
+body.font-serif .big { font-size: calc(clamp(38px, 4.4vw, 82px) * var(--big-size, 1)); }
+body.font-bold .big { font-size: calc(clamp(36px, 4vw, 76px) * var(--big-size, 1)); }
+body.font-hand .big { font-size: calc(clamp(40px, 4.6vw, 86px) * var(--big-size, 1)); }
+.big.align-left { text-align: left; --justify: flex-start; }
+.big.align-right { text-align: right; --justify: flex-end; }
+
+/* While arranging: a frame to drag, with a sample line when no lyric is on screen. */
+body.moving .big:not(.off) {
+  pointer-events: auto; cursor: grab; border-radius: 10px;
+  outline: 2px dashed var(--accent); outline-offset: 6px; background: rgba(0, 0, 0, .14);
+}
+body.moving .big.off { display: none; }
+body.moving .big:not(:has(.line:not(.leaving)))::before {
+  content: "Big lyrics show here"; position: absolute; inset: 0; display: flex; align-items: center;
+  justify-content: var(--justify, center); font-weight: 800; color: var(--accent); opacity: .85;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, .75);
+}
+body.moving .big.fade .line:not(.leaving) { opacity: .7; }
 /* The colour cycle only runs for the colours that move, and only while lyrics show. */
 .big.colour-rainbow, .big.colour-fade { animation: hue 6s steps(360) infinite; }
 .big.fade, .big.fade .inner { animation-play-state: paused !important; }
 @keyframes hue { to { --hue: 360; } }
 .line {
   position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%);
-  font-weight: 800; font-size: clamp(30px, 3.4vw, 64px); line-height: 1.18; letter-spacing: -.01em;
+  font-weight: 800; font-size: 1em; line-height: 1.18; letter-spacing: -.01em;
   text-wrap: balance;
 }
-body.font-serif .line { font-weight: 400; font-style: italic; font-size: clamp(38px, 4.4vw, 82px); letter-spacing: 0; }
+body.font-serif .line { font-weight: 400; font-style: italic; letter-spacing: 0; }
 body.font-pixel .line { font-weight: 700; letter-spacing: .02em; }
+body.font-bold .line { font-weight: 400; letter-spacing: .03em; }
+body.font-round .line { font-weight: 900; }
+body.font-hand .line { font-weight: 700; letter-spacing: 0; }
 /* The line leaving and the words coming in run at 60 steps a second instead of the screen's refresh rate (see the
    note at @keyframes eq). Their keyframes trace the ease curves they used to have, one step count per interval. */
 .line.leaving { animation: drift .8s forwards; }
@@ -203,6 +279,28 @@ body.font-pixel .line { font-weight: 700; letter-spacing: .02em; }
   100% { opacity: 1; transform: none; filter: none; }
 }
 .inner { display: inline-block; }
+
+/* Other ways for the words to come in (same length as the rise above; steps per interval = its share of .42 s × 60). */
+.entrance-pop .word { animation-name: word-pop; }
+@keyframes word-pop {
+  0% { opacity: 0; transform: scale(.3); animation-timing-function: steps(14); }
+  55% { opacity: 1; transform: scale(1.14); animation-timing-function: steps(11); }
+  100% { opacity: 1; transform: none; }
+}
+.entrance-slide .word { animation-name: word-slide; }
+@keyframes word-slide {
+  0% { opacity: 0; transform: translateX(-.7em); filter: blur(4px); animation-timing-function: steps(8); }
+  30% { opacity: .75; transform: translateX(-.2em); filter: blur(1.5px); animation-timing-function: steps(17); }
+  100% { opacity: 1; transform: none; filter: none; }
+}
+.entrance-drop .word { animation-name: word-drop; }
+@keyframes word-drop {
+  0% { opacity: 0; transform: translateY(-.8em) scale(1.08); animation-timing-function: steps(15); }
+  60% { opacity: 1; transform: translateY(.07em); animation-timing-function: steps(10); }
+  100% { opacity: 1; transform: none; }
+}
+.entrance-fade .word { animation-name: word-fade; }
+@keyframes word-fade { 0% { opacity: 0; animation-timing-function: steps(25); } 100% { opacity: 1; } }
 
 /* Big lyrics style = look × colour × motion, each picked on its own.
    --c is the word's colour: the picked colour, or a hue that moves along the line in rainbow mode. */
@@ -225,9 +323,13 @@ html.colour-fade {
     4px 4px 0 var(--c-deep), 5px 5px 0 var(--c-deep), 6px 6px 0 color-mix(in srgb, var(--c-deep) 70%, #000),
     10px 12px 18px rgba(0, 0, 0, .5);
 }
+/* Glow stays close to the letters on purpose. Windows blends this see-through window in a way that makes faint
+   pixels much brighter than they should be, so a wide, faint glow shows up as hard rings, one per step of
+   transparency. A short glow keeps those steps to a pixel or two, where they can't be seen. */
 .look-glow .inner {
   color: color-mix(in srgb, var(--c) 22%, #fff);
-  text-shadow: 0 0 4px var(--c), 0 0 14px var(--c), 0 0 36px var(--c), 0 2px 6px rgba(0, 0, 0, .6);
+  text-shadow: 0 0 .03em var(--c), 0 0 .09em var(--c), 0 0 .2em color-mix(in srgb, var(--c) 75%, transparent),
+    0 .03em .08em rgba(0, 0, 0, .5);
 }
 .look-outline .inner {
   /* A solid dark fill painted over the stroke hides the font's inner seams. */
@@ -263,6 +365,25 @@ html.colour-fade {
   25% { transform: scale(1.035); animation-timing-function: steps(18); }
   50% { transform: scale(1.07); animation-timing-function: steps(18); }
   75% { transform: scale(1.035); animation-timing-function: steps(18); }
+}
+/* Float: the line drifts up and down slowly, each word a little behind the last. */
+.motion-float .inner { animation: float 3s infinite; animation-delay: calc(var(--i) * -9s / 60); }
+@keyframes float {
+  0%, 100% { transform: translateY(0); animation-timing-function: steps(45); }
+  25% { transform: translateY(-.07em); animation-timing-function: steps(45); }
+  50% { transform: translateY(-.1em); animation-timing-function: steps(45); }
+  75% { transform: translateY(-.04em); animation-timing-function: steps(45); }
+}
+/* Flicker: like a sign with a loose wire, each word on its own beat. */
+.motion-flicker .inner { animation: flicker 3.2s infinite; animation-delay: calc(var(--i) * -37s / 60); }
+@keyframes flicker {
+  0%, 100% { opacity: 1; animation-timing-function: steps(1, end); }
+  41% { opacity: .35; animation-timing-function: steps(1, end); }
+  43% { opacity: 1; animation-timing-function: steps(1, end); }
+  45% { opacity: .55; animation-timing-function: steps(1, end); }
+  47% { opacity: 1; animation-timing-function: steps(1, end); }
+  78% { opacity: .7; animation-timing-function: steps(1, end); }
+  80% { opacity: 1; animation-timing-function: steps(1, end); }
 }
 
 /* ---------- Toast ---------- */
