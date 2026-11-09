@@ -4,7 +4,7 @@
 
 # Lyrics Overlay
 
-**Synced lyrics floating over your Windows desktop — for whatever is playing.**
+**Synced lyrics floating over your Windows desktop, for whatever is playing.**
 
 Spotify · YouTube in Chrome, Edge, Firefox or Brave · any player in Windows' media controls
 
@@ -34,10 +34,10 @@ Cover, title, artist and a draggable progress bar, with play/pause and previous/
 
 ### 🔤 Big floating lyrics
 Lines that type in word by word, styled by mixing:
-- **Look** — Depth (3D), Glow, Outline, Plain
-- **Colour** — any colour, rainbow, a fade between two colours, or the cover art's colour
-- **Motion** — Wave, Bounce, Pulse, Float, Flicker
-- **Entrance** — Rise, Pop, Slide, Drop, Fade
+- **Look:** Depth (3D), Glow, Outline, Plain
+- **Colour:** any colour, rainbow, a fade between two colours, or the cover art's colour
+- **Motion:** Wave, Bounce, Pulse, Float, Flicker
+- **Entrance:** Rise, Pop, Slide, Drop, Fade
 - **Font**, size, width and position
 
 </td>
@@ -137,9 +137,9 @@ flowchart LR
 
 No account, no tracking, no analytics. The app only talks to:
 
-- **LRCLIB** and **NetEase** — song title, artist and length, to find lyrics
-- **iTunes** — title and artist, to find a cover when the player shares none
-- **Shazam** — only when *Recognise songs without lyrics* is on and no lyrics were found: an audio fingerprint of ~11 s of what's playing (not the audio itself)
+- **LRCLIB** and **NetEase:** song title, artist and length, to find lyrics
+- **iTunes:** title and artist, to find a cover when the player shares none
+- **Shazam:** an audio fingerprint of ~11 s of what's playing (not the audio itself), only when *Recognise songs without lyrics* is on and no lyrics were found
 
 > [!WARNING]
 > Song recognition uses Shazam's unofficial, private service, the same way open-source apps like SongRec do. It can stop working at any time and isn't allowed by Shazam's terms. Turn it off under **Settings → Show**.
