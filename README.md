@@ -14,7 +14,11 @@ Spotify · YouTube in Chrome, Edge, Firefox or Brave · any player in Windows' m
   <img alt="License: AGPL-3.0" src="https://img.shields.io/badge/License-AGPL--3.0-A42E2B?style=for-the-badge">
 </p>
 
-[Features](#-features) · [Install](#-install) · [Use it](#-use-it) · [How it works](#-how-it-works) · [Privacy](#-privacy) · [License](#-license)
+[Features](#-features) · [In action](#-in-action) · [Install](#-install) · [Use it](#-use-it) · [How it works](#-how-it-works) · [Privacy](#-privacy) · [License](#-license)
+
+<br>
+
+<img src="docs/media/lyrics.gif" width="100%" alt="Lyrics typing in word by word over the desktop, with the now playing card in the corner">
 
 </div>
 
@@ -68,6 +72,31 @@ Lyrics found once are saved on disk, so a song loads instantly next time, even w
 ### 🖱️ Stays out of your way
 A click-through window: everything except the card lets your clicks pass to the apps underneath. It doesn't pause YouTube, and goes fully idle when nothing is playing.
 
+</td>
+</tr>
+</table>
+
+## 🎬 In action
+
+<table>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/media/styles.gif" alt="Switching colours, fonts and motion in the settings while the lyrics play">
+<p align="center"><sub>Change the look live: colours, fonts, motion</sub></p>
+</td>
+<td width="50%" valign="top">
+<img src="docs/media/arrange.gif" alt="Arrange mode: resizing and moving the big lyrics">
+<p align="center"><sub><b>Arrange</b>: resize the lyrics and put them anywhere</sub></p>
+</td>
+</tr>
+<tr>
+<td valign="top">
+<img src="docs/media/drag.gif" alt="Dragging the card around the screen with snap guides">
+<p align="center"><sub>Drag the card, it snaps to lines and a grid</sub></p>
+</td>
+<td valign="top">
+<img src="docs/media/rainbow.png" alt="Rainbow 3D lyrics next to the settings panel">
+<p align="center"><sub>Depth (3D) look with rainbow colour</sub></p>
 </td>
 </tr>
 </table>
