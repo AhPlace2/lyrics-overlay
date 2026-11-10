@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="build/icon.png" width="112" alt="Lyrics Overlay icon">
+<img src="docs/media/icon.png" width="112" alt="Lyrics Overlay icon">
 
 # Lyrics Overlay
 
@@ -139,7 +139,7 @@ The app is `native\target\release\lyrics-overlay.exe`. For a CPU-only build with
 
 ### The old Electron version
 
-The Electron app (0.1.7 and older) is still in `src/`. Run it with [Node.js](https://nodejs.org): `npm install`, then `npm start`. It won't get new features.
+The Electron app (0.1.7 and older) has been removed from this branch. Its code is still under the [`v0.1.7` tag](https://github.com/AhPlace2/lyrics-overlay/tree/v0.1.7). It won't get new features.
 
 ## 🎛️ Use it
 
