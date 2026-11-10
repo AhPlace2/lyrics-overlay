@@ -32,15 +32,13 @@ Spotify · YouTube in Chrome, Edge, Firefox or Brave · any player in Windows' m
 <td width="50%" valign="top">
 
 ### 🎵 Now playing card
-Cover, title, controls and the current lyric line. **Right-click** to hide it.
-<br>
+Cover, title, controls and the current lyric line. **Right-click** to hide it.<br>&nbsp;
 
 </td>
 <td width="50%" valign="top">
 
 ### 🔤 Big floating lyrics
-Word-by-word lines. Mix looks, colours, motions and fonts.
-<br>
+Word-by-word lines. Mix looks, colours, motions and fonts.<br>&nbsp;
 
 </td>
 </tr>
@@ -48,15 +46,13 @@ Word-by-word lines. Mix looks, colours, motions and fonts.
 <td valign="top">
 
 ### 🎯 Timing that fits
-Lyrics off? Nudge them or press **Sync**. Saved per song.
-<br>
+Lyrics off? Nudge them or press **Sync**. Saved per song.<br>&nbsp;
 
 </td>
 <td valign="top">
 
 ### 🎧 Song recognition
-Messy video title? It asks Shazam what's playing.
-<br>
+Messy video title? It asks Shazam what's playing.<br>&nbsp;
 
 </td>
 </tr>
@@ -64,15 +60,13 @@ Messy video title? It asks Shazam what's playing.
 <td valign="top">
 
 ### 💾 Instant and offline
-Lyrics are saved, so songs load instantly, even offline.
-<br>
+Lyrics are saved, so songs load instantly, even offline.<br>&nbsp;
 
 </td>
 <td valign="top">
 
 ### 🖱️ Stays out of your way
-Clicks pass through to the apps underneath.
-<br>
+Clicks pass through to the apps underneath.<br>&nbsp;
 
 </td>
 </tr>
@@ -80,15 +74,13 @@ Clicks pass through to the apps underneath.
 <td valign="top">
 
 ### ⚡ Light and fast
-One 13 MB file, written in Rust, drawn with DirectX 12.
-<br>
+One 13 MB file, written in Rust, drawn with DirectX 12.<br>&nbsp;
 
 </td>
 <td valign="top">
 
 ### 🔄 Updates itself
-One click to update. No installer.
-<br>
+One click to update. No installer.<br>&nbsp;
 
 </td>
 </tr>
