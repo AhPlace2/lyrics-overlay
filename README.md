@@ -32,18 +32,13 @@ Spotify · YouTube in Chrome, Edge, Firefox or Brave · any player in Windows' m
 <td width="50%" valign="top">
 
 ### 🎵 Now playing card
-Cover, title, artist and a draggable progress bar, with play/pause and previous/next. The current lyric line underlines itself as it's sung, with the next lines below. Drag it anywhere, resize it, and **right-click** it to make it fade away so you can click what's under it.
+Cover, title, controls and the current lyric line. **Right-click** to hide it.
 
 </td>
 <td width="50%" valign="top">
 
 ### 🔤 Big floating lyrics
-Lines that type in word by word, styled by mixing:
-- **Look:** Depth (3D), Glow, Outline, Plain
-- **Colour:** any colour, rainbow, a fade between two colours, or the cover art's colour
-- **Motion:** Wave, Bounce, Pulse, Float, Flicker
-- **Entrance:** Rise, Pop, Slide, Drop, Fade
-- **Font**, size, width and position
+Word-by-word lines. Mix looks, colours, motions and fonts.
 
 </td>
 </tr>
@@ -51,13 +46,13 @@ Lines that type in word by word, styled by mixing:
 <td valign="top">
 
 ### 🎯 Timing that fits
-Lyrics come from [LRCLIB](https://lrclib.net), with other versions from LRCLIB and NetEase when the timing is off. Nudge a song earlier or later, or press **Sync** the moment a line is sung. Your fix is saved for that song.
+Lyrics off? Nudge them or press **Sync**. Saved per song.
 
 </td>
 <td valign="top">
 
 ### 🎧 Song recognition
-When a video's title is too messy to find lyrics, the app can listen to a few seconds of what's playing and ask Shazam what the song really is, then search again with the real name.
+Messy video title? It asks Shazam what's playing.
 
 </td>
 </tr>
@@ -65,13 +60,13 @@ When a video's title is too messy to find lyrics, the app can listen to a few se
 <td valign="top">
 
 ### 💾 Instant and offline
-Lyrics found once are saved on disk, so a song loads instantly next time, even without internet.
+Lyrics are saved, so songs load instantly, even offline.
 
 </td>
 <td valign="top">
 
 ### 🖱️ Stays out of your way
-A click-through window: everything except the card lets your clicks pass to the apps underneath. It doesn't pause YouTube, and goes fully idle when nothing is playing.
+Clicks pass through to the apps underneath.
 
 </td>
 </tr>
@@ -79,13 +74,13 @@ A click-through window: everything except the card lets your clicks pass to the 
 <td valign="top">
 
 ### ⚡ Light and fast
-One 13 MB file, written in Rust. It draws on your graphics card with DirectX 12, and falls back to the CPU on PCs where that doesn't work.
+One 13 MB file, written in Rust, drawn with DirectX 12.
 
 </td>
 <td valign="top">
 
 ### 🔄 Updates itself
-When a new version is out, the settings show an **Update** button. It downloads the new version, checks it, and restarts. No installer needed.
+One click to update. No installer.
 
 </td>
 </tr>
