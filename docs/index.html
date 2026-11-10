@@ -97,7 +97,7 @@
   .demo { padding: 40px 0 24px; }
   .stage {
     position: relative; border-radius: 18px; overflow: hidden; border: 1px solid var(--line);
-    aspect-ratio: 16 / 8; min-height: 300px;
+    height: clamp(300px, 50vw, 560px);
     background:
       radial-gradient(60% 80% at 80% 100%, #3b1d6e 0%, transparent 60%),
       radial-gradient(50% 70% at 10% 0%, #0f3b4a 0%, transparent 60%),
