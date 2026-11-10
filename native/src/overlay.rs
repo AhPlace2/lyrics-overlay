@@ -89,6 +89,15 @@ impl Group {
                 let f = move |p: Pos2| xf * p;
                 if t.blur > 0.0 {
                     draw::soft_text(&mut mesh, &t.galley, t.pos, t.offset, t.blur, t.color, uv, &f);
+                } else if xf.scaling == 1.0 {
+                    // Sharp text: put the galley on whole physical pixels. egui lays glyphs out pixel-aligned
+                    // relative to the galley's origin, so a fractional origin makes every glyph sample between
+                    // texels and come out blurry.
+                    let ppp = painter.ctx().pixels_per_point();
+                    let at = xf * (t.pos + t.offset);
+                    let snap = (at.to_vec2() * ppp).round() / ppp - at.to_vec2();
+                    let g = move |p: Pos2| xf * p + snap;
+                    draw::galley_into(&mut mesh, &t.galley, t.pos + t.offset, t.color, uv, &g);
                 } else {
                     draw::galley_into(&mut mesh, &t.galley, t.pos + t.offset, t.color, uv, &f);
                 }

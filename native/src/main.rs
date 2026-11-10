@@ -1,5 +1,6 @@
 // Lyrics Overlay, native build: the same app as the Electron one, drawn with egui instead of a web page. egui's
-// output is drawn on the CPU (render.rs) into a layered window, so no graphics driver is loaded.
+// output is drawn on the graphics card with Direct3D 12 (gpu.rs) when it can, otherwise on the CPU (render.rs) into
+// a layered window. The "Draw with graphics card" setting picks between them.
 #![windows_subsystem = "windows"]
 
 mod colour;
@@ -16,6 +17,7 @@ mod overlay;
 mod panel;
 mod render;
 mod shazam;
+mod update;
 mod winutil;
 
 use crate::core::{core, Ev};
@@ -64,6 +66,15 @@ struct App {
     soft: render::Soft,
     #[cfg(feature = "dx12")]
     gpu: Option<gpu::Gpu>,
+    /// The window must be made again: the graphics card failed, or the renderer setting changed.
+    rebuild: bool,
+    /// Times the graphics card failed while running; after a few, stay on the CPU.
+    gpu_failures: u32,
+    renderer_version: u64,
+    /// Every texture egui has handed over (font atlas, cover art), kept whole. egui only sends what changed, so a
+    /// new renderer after a switch gets them all from here.
+    textures: std::collections::HashMap<egui::TextureId, (Arc<egui::ColorImage>, egui::TextureOptions)>,
+    resend_textures: bool,
     hwnd: Option<isize>,
     placed: Option<(i32, i32, i32, i32)>,
     last_area_check: Instant,
@@ -170,6 +181,11 @@ impl App {
             soft: render::Soft::new(),
             #[cfg(feature = "dx12")]
             gpu: None,
+            rebuild: false,
+            gpu_failures: 0,
+            renderer_version: 0,
+            textures: std::collections::HashMap::new(),
+            resend_textures: false,
             hwnd: None,
             placed: None,
             last_area_check: Instant::now(),
@@ -195,6 +211,118 @@ impl App {
         }
     }
 
+    /// Whether to try the graphics card: the setting, LO_RENDER=cpu, and not after it kept failing.
+    fn want_gpu(&self) -> bool {
+        cfg!(feature = "dx12") && core().flag("useGpu") && std::env::var("LO_RENDER").map_or(true, |v| v != "cpu") && self.gpu_failures < 3
+    }
+
+    /// Makes the overlay window, drawn on the graphics card when it works and on the CPU otherwise. The two need
+    /// different windows (DirectComposition wants no redirection bitmap; the CPU's layered window needs one), so
+    /// switching opens a new window and then closes the old one.
+    fn open_window(&mut self, el: &ActiveEventLoop, rebuilding: bool) {
+        // The old window stays up until the new one exists: closing it first would hand the keyboard to another
+        // app, which closes the settings panel and keeps it from getting the keyboard back.
+        #[cfg(feature = "dx12")]
+        let old_gpu = self.gpu.take();
+        let old_state = self.state.take();
+        let old_window = self.window.take();
+        self.hwnd = None;
+        self.placed = None;
+        self.soft = render::Soft::new();
+        // The new renderer starts empty.
+        self.resend_textures = true;
+
+        let mut made = false;
+        if self.want_gpu() {
+            match self.make_window(el, true) {
+                Ok(()) => made = true,
+                Err(_) => {
+                    #[cfg(feature = "dx12")]
+                    {
+                        self.gpu = None;
+                    }
+                    self.window = None;
+                    self.state = None;
+                    core().events.push(Ev::Toast("GPU unavailable: drawing on the CPU".into()));
+                }
+            }
+        } else if rebuilding && self.gpu_failures >= 3 && core().flag("useGpu") {
+            core().events.push(Ev::Toast("GPU keeps failing: drawing on the CPU".into()));
+        }
+        if !made {
+            self.make_window(el, false).expect("window");
+        }
+        if rebuilding {
+            // The settings panel stays open on the new window, with the keyboard.
+            self.panel.window_changed();
+        }
+        drop(old_state);
+        #[cfg(feature = "dx12")]
+        drop(old_gpu);
+        drop(old_window);
+    }
+
+    fn make_window(&mut self, el: &ActiveEventLoop, gpu: bool) -> Result<(), String> {
+        let (x, y, w, h) = winutil::work_area();
+        let attrs = Window::default_attributes()
+            .with_title("Lyrics Overlay")
+            .with_decorations(false)
+            .with_resizable(false)
+            .with_window_level(WindowLevel::AlwaysOnTop)
+            .with_skip_taskbar(true)
+            .with_active(false)
+            .with_position(winit::dpi::PhysicalPosition::new(x, y))
+            .with_inner_size(winit::dpi::PhysicalSize::new(w as u32, h as u32))
+            // On the graphics card it draws into a DirectComposition visual instead of the window's own bitmap.
+            .with_no_redirection_bitmap(gpu);
+        winutil::GPU.store(gpu, std::sync::atomic::Ordering::Relaxed);
+        let window = Arc::new(el.create_window(attrs).map_err(|e| e.to_string())?);
+        #[cfg(feature = "dx12")]
+        if gpu {
+            self.gpu = Some(gpu::Gpu::new(window.clone(), w as u32, h as u32)?);
+        }
+        if let Ok(h) = window.window_handle() {
+            if let RawWindowHandle::Win32(w) = h.as_raw() {
+                let hwnd = w.hwnd.get();
+                winutil::make_overlay_window(hwnd);
+                self.hwnd = Some(hwnd);
+                self.panel.hwnd = Some(hwnd);
+            }
+        }
+        let state = egui_winit::State::new(self.ctx.clone(), egui::ViewportId::ROOT, &window, Some(window.scale_factor() as f32), None, Some(8192));
+        self.state = Some(state);
+        self.window = Some(window);
+        self.wake_at(Instant::now());
+        Ok(())
+    }
+
+    /// Keeps a whole copy of each texture, with this frame's changes applied.
+    fn remember_textures(&mut self, delta: &egui::TexturesDelta) {
+        for (id, list) in &delta.set {
+            for d in list {
+                let egui::ImageData::Color(img) = &d.image;
+                match d.pos {
+                    None => {
+                        self.textures.insert(*id, (img.clone(), d.options));
+                    }
+                    Some([x0, y0]) => {
+                        let Some((base, _)) = self.textures.get_mut(id) else { continue };
+                        let base = Arc::make_mut(base);
+                        let (bw, w) = (base.size[0], img.size[0]);
+                        for y in 0..img.size[1] {
+                            if y0 + y < base.size[1] && x0 + w <= bw {
+                                base.pixels[(y0 + y) * bw + x0..][..w].copy_from_slice(&img.pixels[y * w..][..w]);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for id in &delta.free {
+            self.textures.remove(id);
+        }
+    }
+
     fn wake_at(&mut self, at: Instant) {
         self.next_frame = Some(self.next_frame.map_or(at, |n| n.min(at)));
     }
@@ -215,7 +343,16 @@ impl App {
             raw.events.push(egui::Event::PointerGone);
         }
         let t0 = Instant::now();
-        let out = ctx.run_pass(raw, |ctx| self.ui(ctx));
+        let mut out = ctx.run_pass(raw, |ctx| self.ui(ctx));
+        let mut delta = std::mem::take(&mut out.textures_delta);
+        self.remember_textures(&delta);
+        if std::mem::take(&mut self.resend_textures) {
+            let mut all = egui::TexturesDelta::default();
+            for (id, (img, opts)) in &self.textures {
+                all.push(*id, egui::epaint::ImageDelta::full(egui::ImageData::Color(img.clone()), *opts));
+            }
+            std::mem::replace(&mut delta, all).clear();
+        }
         let t_ui = t0.elapsed().as_secs_f64() * 1000.0;
         self.state.as_mut().unwrap().handle_platform_output(&window, out.platform_output);
         let ppp = out.pixels_per_point;
@@ -226,12 +363,23 @@ impl App {
         let (x, y, w, h) = self.placed.unwrap_or_else(winutil::work_area);
         let floor = if core().editing { 1 } else { 0 };
         #[cfg(feature = "dx12")]
-        if let Some(g) = &mut self.gpu {
-            let _ = (hwnd, x, y, floor);
-            g.paint(w as u32, h as u32, ppp, &prims, &out.textures_delta);
-        }
+        let drawn = match &mut self.gpu {
+            Some(g) => {
+                if !g.paint(w as u32, h as u32, ppp, &prims, &delta) {
+                    self.gpu_failures += 1;
+                    self.rebuild = true;
+                }
+                true
+            }
+            None => false,
+        };
         #[cfg(not(feature = "dx12"))]
-        self.soft.paint(hwnd, x, y, w as usize, h as usize, ppp, floor, &prims, &out.textures_delta);
+        let drawn = false;
+        if !drawn {
+            self.soft.paint(hwnd, x, y, w as usize, h as usize, ppp, floor, &prims, &delta);
+        }
+        // Applied above; egui's debug builds panic if a delta is dropped without saying so.
+        delta.clear();
         if let Some(p) = &mut self.prof {
             let st = self.soft.stats;
             let total = t0.elapsed().as_secs_f64() * 1000.0;
@@ -320,36 +468,8 @@ impl ApplicationHandler<Wake> for App {
         if self.window.is_some() {
             return;
         }
-        let (x, y, w, h) = winutil::work_area();
-        let attrs = Window::default_attributes()
-            .with_title("Lyrics Overlay")
-            .with_decorations(false)
-            .with_resizable(false)
-            .with_window_level(WindowLevel::AlwaysOnTop)
-            .with_skip_taskbar(true)
-            .with_active(false)
-            .with_position(winit::dpi::PhysicalPosition::new(x, y))
-            .with_inner_size(winit::dpi::PhysicalSize::new(w as u32, h as u32))
-            // The GPU build draws into a DirectComposition visual instead of the window's own bitmap.
-            .with_no_redirection_bitmap(cfg!(feature = "dx12"));
-        winutil::GPU.store(cfg!(feature = "dx12"), std::sync::atomic::Ordering::Relaxed);
-        let window = Arc::new(el.create_window(attrs).expect("window"));
-        if let Ok(h) = window.window_handle() {
-            if let RawWindowHandle::Win32(w) = h.as_raw() {
-                let hwnd = w.hwnd.get();
-                winutil::make_overlay_window(hwnd);
-                self.hwnd = Some(hwnd);
-                self.panel.hwnd = Some(hwnd);
-            }
-        }
-        #[cfg(feature = "dx12")]
-        {
-            self.gpu = Some(gpu::Gpu::new(window.clone(), w as u32, h as u32));
-        }
-        let state = egui_winit::State::new(self.ctx.clone(), egui::ViewportId::ROOT, &window, Some(window.scale_factor() as f32), None, Some(8192));
-        self.state = Some(state);
-        self.window = Some(window);
-        self.wake_at(Instant::now());
+        self.renderer_version = core().settings_version;
+        self.open_window(el, false);
     }
 
     fn window_event(&mut self, _el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -373,6 +493,51 @@ impl ApplicationHandler<Wake> for App {
     }
 
     fn about_to_wait(&mut self, el: &ActiveEventLoop) {
+        // LO_SWITCH_TEST=<seconds>: opens the settings and flips "Use GPU" that often, for testing the switch.
+        if let Some(every) = std::env::var("LO_SWITCH_TEST").ok().and_then(|v| v.parse::<u64>().ok()) {
+            static NEXT: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
+            let mut next = NEXT.lock().unwrap();
+            match *next {
+                None => *next = Some(Instant::now() + Duration::from_secs(2)),
+                Some(t) if Instant::now() >= t => {
+                    *next = Some(Instant::now() + Duration::from_secs(every));
+                    let open = self.panel.is_open();
+                    #[cfg(feature = "dx12")]
+                    let on_gpu = self.gpu.is_some();
+                    #[cfg(not(feature = "dx12"))]
+                    let on_gpu = false;
+                    let line = format!("{:?} panel_open={open} gpu={on_gpu}
+", std::time::SystemTime::now());
+                    use std::io::Write;
+                    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(std::env::temp_dir().join("lo-switch.txt")) {
+                        let _ = f.write_all(line.as_bytes());
+                    }
+                    if open {
+                        crate::core::panel_action("toggle", serde_json::json!("useGpu"));
+                    } else {
+                        core().events.push(Ev::TogglePanel(None));
+                    }
+                }
+                Some(t) => self.wake_at(t),
+            }
+            self.wake_at(next.unwrap());
+        }
+        // The renderer setting changed: open the window again if it now asks for the other renderer.
+        let version = core().settings_version;
+        if version != self.renderer_version {
+            self.renderer_version = version;
+            #[cfg(feature = "dx12")]
+            let on_gpu = self.gpu.is_some();
+            #[cfg(not(feature = "dx12"))]
+            let on_gpu = false;
+            if self.window.is_some() && self.want_gpu() != on_gpu {
+                self.rebuild = true;
+            }
+        }
+        if self.rebuild {
+            self.rebuild = false;
+            self.open_window(el, true);
+        }
         if self.next_frame.is_some_and(|t| t <= Instant::now()) {
             self.frame();
         }
@@ -387,11 +552,14 @@ fn main() {
     unsafe {
         let _ = windows::Win32::UI::HiDpi::SetProcessDpiAwarenessContext(windows::Win32::UI::HiDpi::DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
-    if !winutil::single_instance(crate::core::second_instance) {
+    // Started by the updater: the old copy is still quitting, so wait for it instead of handing over to it.
+    let after_update = std::env::args().any(|a| a == update::UPDATED_ARG);
+    if !winutil::single_instance(crate::core::second_instance, after_update) {
         return;
     }
     winutil::set_app_id();
     crate::core::start();
+    update::start();
 
     let el = EventLoop::<Wake>::with_user_event().build().expect("event loop");
     let mut app = App::new(el.create_proxy());

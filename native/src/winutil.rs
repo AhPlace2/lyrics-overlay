@@ -142,9 +142,22 @@ pub fn set_app_id() {
 }
 
 /// True when this is the only copy running. A second copy pokes the first (which shows a message) and quits.
-pub fn single_instance(on_second: impl Fn() + Send + 'static) -> bool {
+/// With `wait` (started by the updater) it instead waits up to 10 s for the other copy to quit.
+pub fn single_instance(on_second: impl Fn() + Send + 'static, wait: bool) -> bool {
     unsafe {
-        let _mutex = CreateMutexW(None, true, w!("Local\\LyricsOverlayNative"));
+        let mut _mutex = CreateMutexW(None, true, w!("Local\\LyricsOverlayNative"));
+        if wait {
+            for _ in 0..50 {
+                if GetLastError() != ERROR_ALREADY_EXISTS {
+                    break;
+                }
+                if let Ok(m) = &_mutex {
+                    let _ = CloseHandle(*m);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                _mutex = CreateMutexW(None, true, w!("Local\\LyricsOverlayNative"));
+            }
+        }
         if GetLastError() == ERROR_ALREADY_EXISTS {
             if let Ok(ev) = OpenEventW(EVENT_MODIFY_STATE, false, w!("Local\\LyricsOverlayNativeWake")) {
                 let _ = SetEvent(ev);

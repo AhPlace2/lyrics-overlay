@@ -20,7 +20,7 @@ pub const ALIGNS: &[(&str, &str)] = &[("left", "Left"), ("center", "Centre"), ("
 pub const COLOUR_MODES: &[(&str, &str)] = &[("accent", "Colour"), ("rainbow", "Rainbow"), ("fade", "Fade"), ("cover", "From the cover")];
 pub const FONTS: &[(&str, &str)] =
     &[("clean", "Clean"), ("serif", "Serif"), ("pixel", "Pixel"), ("bold", "Poster"), ("round", "Round"), ("hand", "Hand")];
-const TOGGLES: &[&str] = &["enabled", "showCard", "showCardLyrics", "showBig", "showCover", "showArtist", "showProgress", "showControls", "recognise"];
+const TOGGLES: &[&str] = &["enabled", "showCard", "showCardLyrics", "showBig", "showCover", "showArtist", "showProgress", "showControls", "recognise", "checkUpdates", "useGpu"];
 
 fn defaults() -> Map<String, Value> {
     let v = json!({
@@ -54,6 +54,8 @@ fn defaults() -> Map<String, Value> {
         "showControls": true,
         "peekKey": "off",
         "recognise": true,
+        "checkUpdates": true,
+        "useGpu": true,
     });
     v.as_object().unwrap().clone()
 }
@@ -169,6 +171,16 @@ static CORE: LazyLock<Mutex<Core>> = LazyLock::new(|| {
         was_pressed: false,
     })
 });
+
+/// LO_SWITCH_TEST only: notes for the renderer-switch test, in %TEMP%\lo-switch.txt.
+pub fn test_log(what: &str) {
+    if std::env::var("LO_SWITCH_TEST").is_ok() {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(std::env::temp_dir().join("lo-switch.txt")) {
+            let _ = writeln!(f, "{:?} {what}", std::time::SystemTime::now());
+        }
+    }
+}
 
 pub fn core() -> MutexGuard<'static, Core> {
     CORE.lock().unwrap_or_else(|e| e.into_inner())
@@ -431,6 +443,7 @@ impl Core {
             "options": { "looks": opts(LOOKS), "motions": opts(MOTIONS), "fonts": opts(FONTS), "entrances": opts(ENTRANCES), "sides": opts(SIDES), "aligns": opts(ALIGNS), "peekKeys": opts(PEEK_KEYS) },
             "coverColour": self.cover_colour.as_ref().map(|c| c.1.clone()),
             "song": song,
+            "update": crate::update::panel_value(),
         })
     }
 }
@@ -913,6 +926,9 @@ pub fn panel_action(name: &str, value: Value) {
             } else if TOGGLES.contains(&key) {
                 let on = !c.flag(key);
                 c.update1(key, json!(on));
+                if key == "checkUpdates" && on {
+                    crate::update::check_soon();
+                }
             }
         }
         "set" => {
@@ -1004,6 +1020,12 @@ pub fn panel_action(name: &str, value: Value) {
         "move" => {
             c.events.push(Ev::ClosePanel);
             c.set_editing(true);
+        }
+        "update-now" => crate::update::install(),
+        "update-page" => {
+            if let Some(url) = value.as_str().filter(|u| u.starts_with("https://github.com/")) {
+                let _ = std::process::Command::new("explorer").arg(url).spawn();
+            }
         }
         "quit" => {
             c.events.push(Ev::Quit);
@@ -1102,6 +1124,7 @@ pub fn update_catching() {
         // The panel closes like a menu when you click anywhere else (presses on the overlay itself are handled there).
         let pressed = crate::winutil::is_down(0x01) || crate::winutil::is_down(0x02);
         if pressed && !c.was_pressed && c.panel_rect.is_some() && !over_panel && !over {
+            test_log("panel closed: click outside it");
             c.events.push(Ev::ClosePanel);
             notify();
         }

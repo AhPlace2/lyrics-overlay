@@ -131,6 +131,8 @@ pub struct Panel {
     wake: Option<f64>,
     stage_last: f32,
     hex_rect: Option<Rect>,
+    /// The now playing card's options are unfolded in the Show tab.
+    card_more: bool,
 }
 
 impl Panel {
@@ -164,6 +166,19 @@ impl Panel {
             wake: None,
             stage_last: 300.0,
             hex_rect: None,
+            card_more: false,
+        }
+    }
+
+    /// The overlay window was made again (switching between GPU and CPU drawing). The new window doesn't have the
+    /// keyboard yet: give it the keyboard, and don't read that moment as clicking away from the panel.
+    pub fn window_changed(&mut self) {
+        self.had_focus = false;
+        self.pressed = None;
+        if self.open && self.closing.is_none() {
+            if let Some(h) = self.hwnd {
+                crate::winutil::set_activatable(h, true);
+            }
         }
     }
 
@@ -262,6 +277,7 @@ impl Panel {
         if focused {
             self.had_focus = true;
         } else if self.had_focus && self.closing.is_none() && self.pending.is_none() {
+            core::test_log("panel closed: lost keyboard focus");
             self.close();
         }
         if ctx.input(|i| i.key_pressed(Key::Escape)) {
@@ -634,8 +650,9 @@ impl Panel {
 
     fn pane_show(&mut self, pen: &mut Pen, state: &Value, acts: &mut Vec<Act>) {
         let s = &state["settings"];
+        update_banner(pen, &state["update"], acts);
         let card_on = s["showCard"].as_bool().unwrap_or(false);
-        let rows: [(&str, &str, bool, Option<&str>); 9] = [
+        let rows: [(&str, &str, bool, Option<&str>); 11] = [
             ("enabled", "Lyrics", false, Some("Ctrl+Alt+L")),
             ("showCard", "Now playing card", false, None),
             ("showCardLyrics", "Lyrics on the card", true, None),
@@ -645,15 +662,56 @@ impl Panel {
             ("showControls", "Play controls", true, None),
             ("showBig", "Big floating lyrics", false, None),
             ("recognise", "Recognise songs without lyrics", false, None),
+            ("checkUpdates", "Check for updates", false, None),
+            ("useGpu", "Use GPU", false, None),
         ];
+        // The card's own options fold away under its row; the arrow opens and closes them.
+        let k = tween(pen.ctx, "card-more", if self.card_more { 1.0 } else { 0.0 }, 0.2);
         for (key, label, sub, kbd) in rows {
             let on = s[key].as_bool().unwrap_or(false);
             let enabled = !sub || card_on;
-            if toggle_row(pen, key, label, sub, kbd, on, enabled) {
+            if sub {
+                if k <= 0.01 {
+                    continue;
+                }
+                // Slide open: each row takes k of its height and fades in.
+                let (y0, o) = (pen.y, pen.o);
+                pen.o *= k * k;
+                let clicked = toggle_row(pen, key, label, sub, kbd, on, enabled && k > 0.99);
+                pen.o = o;
+                pen.y = y0 + (pen.y - y0) * k;
+                if clicked {
+                    acts.push(Act::Core("toggle", json!(key)));
+                }
+                continue;
+            }
+            let y0 = pen.y;
+            let clicked = toggle_row(pen, key, label, sub, kbd, on, enabled);
+            if key == "showCard" {
+                // The arrow sits just after the label; the label and the arrow both open and close the options.
+                let lw = line(pen.ctx, label, fonts::inter(400, 13.0), TEXT).size().x;
+                let r = Rect::from_center_size(pos2(pen.x + lw + 4.0 + 12.0, y0 + 14.0), vec2(24.0, 24.0));
+                let hit = Rect::from_min_max(pos2(pen.x, y0), pos2(r.right(), y0 + 28.0));
+                let (h, _, open_click) = pen.interact("card-more", hit, true);
+                let hk = pen.hover_t("card-more", h);
+                pen.shape(Shape::rect_filled(r, 6.0, rgba(255, 255, 255, 0.08 * hk * pen.o)));
+                // A chevron pointing right when closed, down when open.
+                let a = k * std::f32::consts::FRAC_PI_2;
+                let rot = |p: Vec2| r.center() + vec2(p.x * a.cos() - p.y * a.sin(), p.x * a.sin() + p.y * a.cos());
+                let pts = vec![rot(vec2(-2.0, -4.5)), rot(vec2(2.5, 0.0)), rot(vec2(-2.0, 4.5))];
+                pen.shape(Shape::line(pts, Stroke::new(1.6, pen.a(mix(TEXT, hk, dim())))));
+                if open_click {
+                    self.card_more = !self.card_more;
+                } else if clicked {
+                    acts.push(Act::Core("toggle", json!(key)));
+                }
+                continue;
+            }
+            if clicked {
                 acts.push(Act::Core("toggle", json!(key)));
             }
         }
-        hint(pen, "No lyrics? Asks Shazam. Unofficial, may break.");
+        hint(pen, "No lyrics? Asks Shazam. Unofficial, may break. Updates: asks GitHub once a day. Use GPU: less CPU, more memory.");
         pen.y += 4.0;
         label(pen, "Hide the card while holding", None);
         chips(pen, "peekKey", &state["options"]["peekKeys"], str_of(s, "peekKey"), acts);
@@ -1056,7 +1114,9 @@ fn group(pen: &mut Pen, name: &str, first: bool) {
 
 fn toggle_row(pen: &mut Pen, key: &str, name: &str, sub: bool, kbd: Option<&str>, on: bool, enabled: bool) -> bool {
     let r = Rect::from_min_size(pos2(pen.x, pen.y), vec2(pen.w, 28.0));
-    let (_, _, clicked) = pen.interact(&format!("tg-{key}"), r, enabled);
+    // Only the switch toggles; the label is just a label.
+    let sr = Rect::from_min_size(pos2(pen.x + pen.w - 32.0, r.center().y - 9.0), vec2(32.0, 18.0));
+    let (_, _, clicked) = pen.interact(&format!("tg-{key}"), sr.expand(5.0), enabled);
     let fade = if enabled { 1.0 } else { 0.4 };
     let o = pen.o;
     pen.o *= fade;
@@ -1072,13 +1132,63 @@ fn toggle_row(pen: &mut Pen, key: &str, name: &str, sub: bool, kbd: Option<&str>
     }
     // The switch.
     let k = tween(pen.ctx, &format!("sw-{key}"), if on { 1.0 } else { 0.0 }, 0.2);
-    let sr = Rect::from_min_size(pos2(pen.x + pen.w - 32.0, r.center().y - 9.0), vec2(32.0, 18.0));
     pen.shape(Shape::rect_filled(sr, 9.0, pen.a(mix(pen.accent, k, rgba(255, 255, 255, 0.16)))));
     let knob_c = mix(Color32::from_rgb(0x16, 0x16, 0x1b), k, Color32::WHITE);
     pen.shape(Shape::circle_filled(pos2(sr.left() + 9.0 + 14.0 * k, sr.center().y), 7.0, pen.a(knob_c)));
     pen.o = o;
     pen.y += 28.0;
     clicked
+}
+
+/// "Version x is out" with an Update button, at the top of the Show tab while there is a newer release.
+fn update_banner(pen: &mut Pen, u: &Value, acts: &mut Vec<Act>) {
+    if u.is_null() {
+        return;
+    }
+    let state = str_of(u, "state");
+    let title = match state {
+        "downloading" => format!("Updating to {}…", str_of(u, "version")),
+        "failed" => "Update didn't work".to_string(),
+        _ => format!("Version {} is out", str_of(u, "version")),
+    };
+    let detail = match state {
+        "failed" => str_of(u, "error").to_string(),
+        "downloading" => "Restarts by itself when it's done.".to_string(),
+        _ => "Downloads it and restarts. Settings stay.".to_string(),
+    };
+    pen.y += 6.0;
+    let top = pen.y;
+    let pad = 10.0;
+    let tg = line(pen.ctx, &title, fonts::inter(600, 13.0), TEXT);
+    let dg = text(pen.ctx, &detail, fonts::inter(400, 11.0), dim(), Txt { wrap: pen.w - 2.0 * pad, ..Default::default() });
+    let main_label = if state == "failed" { "Try again" } else { "Update" };
+    let bs = button_size(pen.ctx, main_label);
+    let ps = button_size(pen.ctx, "Open page");
+    let h = pad + tg.size().y + 4.0 + dg.size().y + 8.0 + bs.y + pad;
+    let r = Rect::from_min_size(pos2(pen.x, top), vec2(pen.w, h));
+    pen.shape(Shape::Rect(egui::epaint::RectShape::new(
+        r,
+        9.0,
+        alpha(pen.accent, 0.12 * pen.o),
+        Stroke::new(1.0, alpha(pen.accent, 0.45 * pen.o)),
+        StrokeKind::Inside,
+    )));
+    let mut y = top + pad;
+    pen.text(&tg, pos2(pen.x + pad, y), TEXT);
+    y += tg.size().y + 4.0;
+    pen.text(&dg, pos2(pen.x + pad, y), dim());
+    y += dg.size().y + 8.0;
+    let br = Rect::from_min_size(pos2(pen.x + pad, y), bs);
+    if button(pen, "upd-now", main_label, br, false, state != "downloading", true) {
+        acts.push(Act::Core("update-now", Value::Null));
+    }
+    if state == "failed" {
+        let pr = Rect::from_min_size(pos2(br.right() + 6.0, y), ps);
+        if button(pen, "upd-page", "Open page", pr, true, true, false) {
+            acts.push(Act::Core("update-page", u["page"].clone()));
+        }
+    }
+    pen.y = r.bottom() + 6.0;
 }
 
 fn button_size(ctx: &Context, label: &str) -> Vec2 {
@@ -1190,10 +1300,51 @@ fn circle_pts(c: Pos2, r: f32) -> Vec<Pos2> {
     }).collect()
 }
 
+/// Anti-aliases the edge of a hand-built mesh the way egui feathers its own shapes: a strip one physical pixel wide
+/// around the closed convex outline `pts`, fading from each point's colour to transparent. Build the fill half a pixel
+/// inside the real edge so the strip straddles it.
+fn feather(mesh: &mut Mesh, pts: &[(Pos2, Color32)], f: f32) {
+    let mut pts: Vec<(Pos2, Color32)> = pts.to_vec();
+    pts.dedup_by(|a, b| a.0.distance(b.0) < 1e-3);
+    while pts.len() > 2 && pts[0].0.distance(pts[pts.len() - 1].0) < 1e-3 {
+        pts.pop();
+    }
+    let n = pts.len();
+    if n < 3 {
+        return;
+    }
+    let mid = pts.iter().fold(Vec2::ZERO, |s, p| s + p.0.to_vec2()) / n as f32;
+    let base = mesh.vertices.len() as u32;
+    for i in 0..n {
+        let (prev, (p, col), next) = (pts[(i + n - 1) % n].0, pts[i], pts[(i + 1) % n].0);
+        let d = next - prev;
+        let mut nrm = vec2(d.y, -d.x).normalized();
+        if nrm.dot(p.to_vec2() - mid) < 0.0 {
+            nrm = -nrm;
+        }
+        mesh.colored_vertex(p, col);
+        mesh.colored_vertex(p + nrm * f, Color32::TRANSPARENT);
+    }
+    for i in 0..n as u32 {
+        let j = (i + 1) % n as u32;
+        let (a, b, c, d) = (base + 2 * i, base + 2 * i + 1, base + 2 * j, base + 2 * j + 1);
+        mesh.add_triangle(a, b, d);
+        mesh.add_triangle(a, d, c);
+    }
+}
+
+/// One physical pixel, in points: the width of the anti-aliased edge.
+fn px(pen: &Pen) -> f32 {
+    1.0 / pen.ctx.pixels_per_point()
+}
+
 /// A colour wheel (conic gradient from the top, clockwise).
 fn conic(pen: &mut Pen, c: Pos2, r: f32) {
+    let f = px(pen);
+    let r = r - f / 2.0;
     let mut mesh = Mesh::default();
-    let n = 48;
+    let mut rim = Vec::new();
+    let n = 64;
     let at = |k: f32| -> Color32 {
         let f = k * (HUES.len() - 1) as f32;
         let i = (f.floor() as usize).min(HUES.len() - 2);
@@ -1208,19 +1359,24 @@ fn conic(pen: &mut Pen, c: Pos2, r: f32) {
         mesh.colored_vertex(p(k0), pen.a(at(k0)));
         mesh.colored_vertex(p(k1), pen.a(at(k1)));
         mesh.add_triangle(base, base + 1, base + 2);
+        rim.push((p(k0), pen.a(at(k0))));
     }
+    feather(&mut mesh, &rim, f);
     pen.shape(Shape::mesh(mesh));
 }
 
 /// A circle filled with a 135° gradient from `a` (15%) to `b` (85%).
 fn diag(pen: &mut Pen, c: Pos2, r: f32, a: Color32, b: Color32) {
+    let f = px(pen);
+    let r = r - f / 2.0;
     let mut mesh = Mesh::default();
+    let mut rim = Vec::new();
     let col = |p: Pos2| {
         let t = ((p.x - c.x) + (p.y - c.y)) / (2.0 * r) * std::f32::consts::FRAC_1_SQRT_2 * 2.0 / 2.0 + 0.5;
         let t = ((t - 0.15) / 0.7).clamp(0.0, 1.0);
         mix(b, t, a)
     };
-    let n = 48;
+    let n = 64;
     let centre = mesh.vertices.len() as u32;
     mesh.colored_vertex(c, pen.a(col(c)));
     for i in 0..=n {
@@ -1230,26 +1386,52 @@ fn diag(pen: &mut Pen, c: Pos2, r: f32, a: Color32, b: Color32) {
         if i > 0 {
             mesh.add_triangle(centre, centre + i, centre + i + 1);
         }
+        if i < n {
+            rim.push((p, pen.a(col(p))));
+        }
     }
+    feather(&mut mesh, &rim, f);
     pen.shape(Shape::mesh(mesh));
 }
 
 /// A rounded rectangle filled by `f(u, v)` (0..1 across and down), as thin vertical strips.
-fn gradient_rrect(pen: &mut Pen, r: Rect, radius: f32, f: &dyn Fn(f32, f32) -> Color32) {
+fn gradient_rrect(pen: &mut Pen, full: Rect, radius: f32, f: &dyn Fn(f32, f32) -> Color32) {
+    let fw = px(pen);
+    // The fill sits half a pixel inside; the feathered rim straddles the real edge.
+    let r = full.shrink(fw / 2.0);
+    let radius = (radius - fw / 2.0).max(0.0).min(r.width() / 2.0).min(r.height() / 2.0);
+    let colour = |p: Pos2| pen.a(f((p.x - full.left()) / full.width(), (p.y - full.top()) / full.height()));
     let mut mesh = Mesh::default();
-    let n = (r.width() / 3.0).ceil() as usize;
     let inset = |x: f32| -> f32 {
         let d = if x < r.left() + radius { r.left() + radius - x } else if x > r.right() - radius { x - (r.right() - radius) } else { 0.0 };
         radius - (radius * radius - d * d).max(0.0).sqrt()
     };
+    // Columns: evenly by angle round the corners (so they stay round), every 3 points along the straight middle.
+    let mut xs = Vec::new();
+    let steps = 12;
+    for i in 0..steps {
+        let a = std::f32::consts::FRAC_PI_2 * i as f32 / steps as f32;
+        xs.push(r.left() + radius - radius * a.cos());
+    }
+    let mid = ((r.width() - 2.0 * radius) / 3.0).ceil().max(1.0) as usize;
+    for i in 0..=mid {
+        xs.push(r.left() + radius + (r.width() - 2.0 * radius) * i as f32 / mid as f32);
+    }
+    for i in (0..steps).rev() {
+        let a = std::f32::consts::FRAC_PI_2 * i as f32 / steps as f32;
+        xs.push(r.right() - radius + radius * a.cos());
+    }
+    xs.dedup_by(|a, b| (*a - *b).abs() < 1e-3);
     let rows = 6;
-    for i in 0..=n {
-        let x = r.left() + r.width() * i as f32 / n as f32;
+    let (mut top, mut bottom) = (Vec::new(), Vec::new());
+    for (i, &x) in xs.iter().enumerate() {
         let (t, b) = (r.top() + inset(x), r.bottom() - inset(x));
         for j in 0..=rows {
-            let y = t + (b - t) * j as f32 / rows as f32;
-            mesh.colored_vertex(pos2(x, y), pen.a(f((x - r.left()) / r.width(), (y - r.top()) / r.height())));
+            let p = pos2(x, t + (b - t) * j as f32 / rows as f32);
+            mesh.colored_vertex(p, colour(p));
         }
+        top.push((pos2(x, t), colour(pos2(x, t))));
+        bottom.push((pos2(x, b), colour(pos2(x, b))));
         if i > 0 {
             let cols = (rows + 1) as u32;
             let (a0, b0) = ((i as u32 - 1) * cols, i as u32 * cols);
@@ -1259,5 +1441,8 @@ fn gradient_rrect(pen: &mut Pen, r: Rect, radius: f32, f: &dyn Fn(f32, f32) -> C
             }
         }
     }
+    bottom.reverse();
+    top.extend(bottom);
+    feather(&mut mesh, &top, fw);
     pen.shape(Shape::mesh(mesh));
 }

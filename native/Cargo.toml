@@ -10,7 +10,7 @@ edition = "2021"
 egui = { version = "0.37", default-features = false, features = ["default_fonts"] }
 egui-winit = { version = "0.37", default-features = false, features = ["clipboard"] }
 winit = "0.30"
-# Only with --features dx12: draw on the graphics card instead of the CPU (for comparing).
+# The "dx12" feature (on by default): draw on the graphics card.
 egui-wgpu = { version = "0.37", default-features = false, optional = true }
 wgpu = { version = "30", default-features = false, features = ["std", "wgsl", "dx12"], optional = true }
 pollster = { version = "0.4", optional = true }
@@ -21,6 +21,7 @@ ureq = { version = "3", features = ["json"] }
 regex = "1"
 unicode-normalization = "0.1"
 sha1 = "0.10"
+sha2 = "0.10"
 crc32fast = "1"
 base64 = "0.22"
 uuid = { version = "1", features = ["v4"] }
@@ -29,6 +30,9 @@ cpal = "0.15"
 raw-window-handle = "0.6"
 
 [features]
+# Draw on the graphics card (Direct3D 12), falling back to the CPU when it can't. Build without it
+# (--no-default-features) for a CPU-only exe.
+default = ["dx12"]
 dx12 = ["dep:egui-wgpu", "dep:wgpu", "dep:pollster"]
 
 [dependencies.windows]
