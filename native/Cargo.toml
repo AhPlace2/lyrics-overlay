@@ -10,6 +10,10 @@ edition = "2021"
 egui = { version = "0.37", default-features = false, features = ["default_fonts"] }
 egui-winit = { version = "0.37", default-features = false, features = ["clipboard"] }
 winit = "0.30"
+# Only with --features dx12: draw on the graphics card instead of the CPU (for comparing).
+egui-wgpu = { version = "0.37", default-features = false, optional = true }
+wgpu = { version = "30", default-features = false, features = ["std", "wgsl", "dx12"], optional = true }
+pollster = { version = "0.4", optional = true }
 tray-icon = "0.26"
 global-hotkey = "0.10"
 serde_json = { version = "1", features = ["preserve_order"] }
@@ -23,6 +27,9 @@ uuid = { version = "1", features = ["v4"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp"] }
 cpal = "0.15"
 raw-window-handle = "0.6"
+
+[features]
+dx12 = ["dep:egui-wgpu", "dep:wgpu", "dep:pollster"]
 
 [dependencies.windows]
 version = "0.62"

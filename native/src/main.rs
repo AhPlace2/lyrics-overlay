@@ -7,6 +7,8 @@ mod core;
 mod cover;
 mod draw;
 mod fonts;
+#[cfg(feature = "dx12")]
+mod gpu;
 mod listen;
 mod lyrics;
 mod media;
@@ -60,6 +62,8 @@ struct App {
     window: Option<Arc<Window>>,
     state: Option<egui_winit::State>,
     soft: render::Soft,
+    #[cfg(feature = "dx12")]
+    gpu: Option<gpu::Gpu>,
     hwnd: Option<isize>,
     placed: Option<(i32, i32, i32, i32)>,
     last_area_check: Instant,
@@ -164,6 +168,8 @@ impl App {
             window: None,
             state: None,
             soft: render::Soft::new(),
+            #[cfg(feature = "dx12")]
+            gpu: None,
             hwnd: None,
             placed: None,
             last_area_check: Instant::now(),
@@ -219,6 +225,12 @@ impl App {
         let t_tess = t1.elapsed().as_secs_f64() * 1000.0;
         let (x, y, w, h) = self.placed.unwrap_or_else(winutil::work_area);
         let floor = if core().editing { 1 } else { 0 };
+        #[cfg(feature = "dx12")]
+        if let Some(g) = &mut self.gpu {
+            let _ = (hwnd, x, y, floor);
+            g.paint(w as u32, h as u32, ppp, &prims, &out.textures_delta);
+        }
+        #[cfg(not(feature = "dx12"))]
         self.soft.paint(hwnd, x, y, w as usize, h as usize, ppp, floor, &prims, &out.textures_delta);
         if let Some(p) = &mut self.prof {
             let st = self.soft.stats;
@@ -317,7 +329,10 @@ impl ApplicationHandler<Wake> for App {
             .with_skip_taskbar(true)
             .with_active(false)
             .with_position(winit::dpi::PhysicalPosition::new(x, y))
-            .with_inner_size(winit::dpi::PhysicalSize::new(w as u32, h as u32));
+            .with_inner_size(winit::dpi::PhysicalSize::new(w as u32, h as u32))
+            // The GPU build draws into a DirectComposition visual instead of the window's own bitmap.
+            .with_no_redirection_bitmap(cfg!(feature = "dx12"));
+        winutil::GPU.store(cfg!(feature = "dx12"), std::sync::atomic::Ordering::Relaxed);
         let window = Arc::new(el.create_window(attrs).expect("window"));
         if let Ok(h) = window.window_handle() {
             if let RawWindowHandle::Win32(w) = h.as_raw() {
@@ -326,6 +341,10 @@ impl ApplicationHandler<Wake> for App {
                 self.hwnd = Some(hwnd);
                 self.panel.hwnd = Some(hwnd);
             }
+        }
+        #[cfg(feature = "dx12")]
+        {
+            self.gpu = Some(gpu::Gpu::new(window.clone(), w as u32, h as u32));
         }
         let state = egui_winit::State::new(self.ctx.clone(), egui::ViewportId::ROOT, &window, Some(window.scale_factor() as f32), None, Some(8192));
         self.state = Some(state);

@@ -77,12 +77,17 @@ pub fn make_overlay_window(hwnd: isize) {
 }
 
 static PASS: AtomicBool = AtomicBool::new(true);
+/// The GPU build: no layered bitmap of our own, so the window is layered only while clicks pass through
+/// (Windows needs WS_EX_LAYERED with WS_EX_TRANSPARENT for that).
+pub static GPU: AtomicBool = AtomicBool::new(false);
 static ACTIVATABLE: AtomicBool = AtomicBool::new(false);
 
 unsafe extern "system" fn keep_style(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM, _id: usize, _data: usize) -> LRESULT {
     if msg == WM_STYLECHANGING && wp.0 as i32 == GWL_EXSTYLE.0 {
         let ss = &mut *(lp.0 as *mut STYLESTRUCT);
-        let mut n = ss.styleNew | WS_EX_LAYERED.0 | WS_EX_TOOLWINDOW.0;
+        let mut n = ss.styleNew | WS_EX_TOOLWINDOW.0;
+        let pass = PASS.load(Ordering::Relaxed);
+        n = if !GPU.load(Ordering::Relaxed) || pass { n | WS_EX_LAYERED.0 } else { n & !WS_EX_LAYERED.0 };
         n &= !WS_EX_APPWINDOW.0;
         n = if PASS.load(Ordering::Relaxed) { n | WS_EX_TRANSPARENT.0 } else { n & !WS_EX_TRANSPARENT.0 };
         n = if ACTIVATABLE.load(Ordering::Relaxed) { n & !WS_EX_NOACTIVATE.0 } else { n | WS_EX_NOACTIVATE.0 };
