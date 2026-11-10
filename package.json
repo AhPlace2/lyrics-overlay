@@ -1,6 +1,6 @@
 {
   "name": "lyrics-overlay",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "description": "Synced lyrics floating on top of your desktop for whatever is playing.",
   "main": "src/main/main.js",
