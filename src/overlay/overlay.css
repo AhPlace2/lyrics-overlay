@@ -89,7 +89,8 @@ body.font-hand .panel .l.cur { font-size: 18px; }
 .progress > span:last-child { text-align: right; }
 
 /* Progress bar: thin, but with a taller invisible strip to grab, and a knob while the mouse is on it. */
-.bar { position: relative; height: 14px; margin-top: 3px; display: flex; align-items: center; cursor: pointer; touch-action: none; }
+/* The strip is 20 px tall but takes the room of 17 (the 3 px below reach into the time row). */
+.bar { position: relative; height: 20px; margin: 0 0 -3px; display: flex; align-items: center; cursor: pointer; touch-action: none; }
 .bar .track { flex: 1; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, .14); overflow: hidden; transition: height .12s; }
 /* The fill and knob move with transforms (no layout), set once a second, and glide there over that second in 60
    steps (see the note on stepped animations below). --pos is 0..1; .jump skips the glide (new song, seeking). */
@@ -109,10 +110,20 @@ body.font-hand .panel .l.cur { font-size: 18px; }
 .bar.off b { display: none; }
 .bar.off .track { height: 4px; }
 
+/* Small buttons get a bigger invisible area to click (the ::before around them), like phone apps do: the icon stays
+   small, the target doesn't. The controls and gear also stop shrinking at 80% of their size when the card is made
+   smaller than that, so they stay easy to hit on a small card. Their click areas stay inside the card, because the
+   mouse is only caught over the card. */
+.controls, .gear { zoom: max(1, calc(.8 / var(--card-scale, 1))); }
+.ctl::before, .gear::before { content: ""; position: absolute; }
+/* Wider by half the gap on each side (no dead pixels between buttons), taller by 4 above and 6 below: 32-34 px. */
+.ctl::before { inset: -4px -1px -6px; }
+.gear::before { inset: -4px; }
+
 /* Previous / play-pause / next */
 .controls { display: flex; align-items: center; gap: 2px; }
 .ctl {
-  width: 24px; height: 22px; padding: 3px; border: 0; border-radius: 6px; cursor: pointer;
+  position: relative; width: 24px; height: 22px; padding: 3px; border: 0; border-radius: 6px; cursor: pointer;
   background: none; color: var(--text); opacity: .7; transition: opacity .15s, background .15s, transform .1s;
 }
 .ctl.main { width: 28px; height: 24px; opacity: .9; }
@@ -124,7 +135,7 @@ body.font-hand .panel .l.cur { font-size: 18px; }
 .ctl.paused .i-play { display: block; }
 .side { align-self: stretch; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-end; }
 .gear {
-  width: 24px; height: 24px; margin: -4px -4px 0 0; padding: 4px; border: 0; border-radius: 6px; cursor: pointer;
+  position: relative; width: 24px; height: 24px; margin: -4px -4px 0 0; padding: 4px; border: 0; border-radius: 6px; cursor: pointer;
   background: none; color: var(--dim); opacity: .55; transition: opacity .15s, background .15s, color .15s;
 }
 .gear svg { width: 100%; height: 100%; display: block; fill: currentColor; transition: transform .3s; }
@@ -194,6 +205,9 @@ body.moving .handle { display: block; }
 .handle.side.left { left: -10px; }
 .handle.side.right { right: -10px; }
 .handle:hover { transform: scale(1.25); }
+/* Bigger invisible areas to grab: 26 px round the corner dot, 26 x 52 round the side bars. */
+.handle::before { content: ""; position: absolute; inset: -6px; }
+.handle.side::before { inset: -8px -9px; }
 
 /* Grid and guide lines while moving the card (24 px grid, a stronger line every 96 px).
    Only shows around the card and fades out with distance from it; --gx/--gy is the card's centre. */

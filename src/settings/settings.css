@@ -56,8 +56,10 @@ body { padding: 10px 14px 18px; }
 
 .head { display: flex; align-items: center; justify-content: space-between; padding: 10px 10px 6px 14px; }
 .name { font-weight: 800; font-size: 14px; }
-.icon { border: 0; background: none; color: var(--dim); width: 26px; height: 26px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.icon { position: relative; border: 0; background: none; color: var(--dim); width: 26px; height: 26px; border-radius: 6px; cursor: pointer; font-size: 13px; }
 .icon:hover { background: rgba(255, 255, 255, .08); color: var(--text); }
+/* Small targets get a bigger invisible area to click: 32 px round the close button. */
+.icon::before { content: ""; position: absolute; inset: -3px; }
 
 
 .row { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; cursor: pointer; }
@@ -109,7 +111,8 @@ button:disabled { opacity: .35; cursor: default; pointer-events: none; }
 .slider > span { display: block; margin-bottom: 4px; color: var(--dim); }
 .slider em { font-style: normal; color: var(--text); margin-left: 4px; font-variant-numeric: tabular-nums; }
 input[type=range] {
-  appearance: none; width: 100%; height: 16px; margin: 0; background: none; cursor: pointer;
+  /* 24 px tall to click, laid out as 16. */
+  appearance: none; width: 100%; height: 24px; margin: -4px 0; background: none; cursor: pointer;
 }
 input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: rgba(255, 255, 255, .16); }
 input[type=range]::-webkit-slider-thumb {
@@ -126,6 +129,8 @@ input[type=range]:focus { outline: none; }
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .3); transition: transform .15s, box-shadow .15s;
 }
 .swatches button:hover { transform: scale(1.12); }
+/* Each swatch can be clicked up to halfway into the gap beside it: 30 px, 26 for the small ones. */
+.swatches button::before { content: ""; position: absolute; inset: -4px; border-radius: 50%; }
 .swatches button.on { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px #fff; }
 /* Your colour: a dot of it inside a hue ring, so it reads as "pick any colour". */
 .swatches .custom { background: radial-gradient(circle, var(--col, #fff) 0 50%, transparent 53%), conic-gradient(#ff4d5e, #ffb648, #f5f25c, #5cf2b0, #6cc8ff, #b47cff, #ff6fae, #ff4d5e); }
@@ -164,6 +169,8 @@ input[type=range]:focus { outline: none; }
   position: relative; height: 12px; border-radius: 6px; cursor: pointer; touch-action: none;
   background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
 }
+/* The hue bar is 12 px tall but can be grabbed over 24. */
+.hue::before { content: ""; position: absolute; inset: -6px 0; }
 .sv i, .hue i {
   position: absolute; width: 14px; height: 14px; border-radius: 50%; pointer-events: none;
   transform: translate(-50%, -50%); box-shadow: 0 0 0 2px #fff, 0 0 0 3px rgba(0, 0, 0, .35);
