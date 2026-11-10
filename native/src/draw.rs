@@ -213,7 +213,7 @@ impl Pointer {
 
 /// Animates `id` towards `target` over `secs` (linear), returning the value now.
 pub fn tween(ctx: &Context, id: &str, target: f32, secs: f32) -> f32 {
-    ctx.animate_value_with_time(egui::Id::new(id), target, secs)
+    ctx.animate_value_with_time(egui::Id::unique(id), target, secs)
 }
 
 /* ---------- Words as cached pictures ---------- */

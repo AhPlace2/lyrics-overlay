@@ -108,7 +108,6 @@ pub struct Core {
     pub peeking: bool,
     pub panel_open: bool,
     pub events: Vec<Ev>,
-    pub failed_hotkeys: Vec<String>,
     // Catching the mouse: where the card is (overlay points), and whether the page holds the pointer.
     pub card_rect: Option<[f64; 4]>,
     /// The settings panel, drawn in the overlay too: caught like the card, and a press anywhere else closes it.
@@ -149,7 +148,6 @@ static CORE: LazyLock<Mutex<Core>> = LazyLock::new(|| {
         peeking: false,
         panel_open: false,
         events: Vec::new(),
-        failed_hotkeys: Vec::new(),
         card_rect: None,
         panel_rect: None,
         page_hold: false,

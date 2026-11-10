@@ -295,7 +295,7 @@ impl Soft {
         let dst = POINT { x, y };
         let size = SIZE { cx: w as i32, cy: h as i32 };
         let src = POINT { x: 0, y: 0 };
-        let mut update = |dirty: Option<&RECT>| unsafe {
+        let update = |dirty: Option<&RECT>| unsafe {
             let info = UPDATELAYEREDWINDOWINFO {
                 cbSize: std::mem::size_of::<UPDATELAYEREDWINDOWINFO>() as u32,
                 hdcDst: HDC::default(),

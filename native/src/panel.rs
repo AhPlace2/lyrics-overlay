@@ -338,7 +338,7 @@ impl Panel {
             let v = str_of(s, t).to_string();
             if !v.is_empty() && Some(&v) != self.shown.as_ref() {
                 self.shown = Some(v.clone());
-                if !self.dragging && !ctx.memory(|m| m.has_focus(Id::new("hex"))) {
+                if !self.dragging && !ctx.memory(|m| m.has_focus(Id::unique("hex"))) {
                     if let Some(c) = hex(&v) {
                         self.hsv = hex_to_hsv(c);
                         self.hex_text = v.to_uppercase();
@@ -505,13 +505,13 @@ impl Panel {
         // The colour code field: a real text box, so it takes typing, pasting and selecting.
         if self.tab == 2 && self.target.is_some() && self.tab_from.is_none() {
             if let Some(field) = self.hex_rect {
-                let area = egui::Area::new(Id::new("hex-area")).order(Order::Foreground).fixed_pos(xf * field.min).interactable(true);
+                let area = egui::Area::new(Id::unique("hex-area")).order(Order::Foreground).fixed_pos(xf * field.min).interactable(true);
                 let o = op;
                 let resp = area.show(ctx, |ui| {
                     ui.visuals_mut().selection.bg_fill = alpha(accent, 0.5);
                     ui.visuals_mut().text_cursor.stroke = Stroke::new(1.5, TEXT);
                     let te = egui::TextEdit::singleline(&mut self.hex_text)
-                        .id(Id::new("hex"))
+                        .id(Id::unique("hex"))
                         .font(fonts::inter(600, 12.0))
                         .text_color(alpha(TEXT, o))
                         .frame(egui::Frame::NONE)
@@ -571,7 +571,7 @@ impl Panel {
         }
 
         let uv = draw::uv_scale(ctx);
-        let painter = ctx.layer_painter(LayerId::new(Order::Middle, Id::new("panel"))).with_clip_rect(screen);
+        let painter = ctx.layer_painter(LayerId::new(Order::Middle, Id::unique("panel"))).with_clip_rect(screen);
         pen.g.paint(&painter, uv);
         let stage_clip = xf * Rect::from_min_max(pos2(root.left(), stage_top), pos2(root.right(), stage_top + stage_h));
         stage_group.paint(&painter.with_clip_rect(stage_clip.intersect(screen)), uv);
@@ -1007,7 +1007,7 @@ impl Panel {
             let preview = Rect::from_min_size(pos2(pen.x, pen.y), vec2(22.0, 22.0));
             pen.shape(Shape::Rect(egui::epaint::RectShape::new(preview, 6.0, pen.a(cur), Stroke::new(1.0, rgba(255, 255, 255, 0.2 * pen.o)), StrokeKind::Inside)));
             let field = Rect::from_min_size(pos2(preview.right() + 8.0, pen.y + (22.0 - 25.0) / 2.0), vec2(90.0, 25.0));
-            let focused = pen.ctx.memory(|m| m.has_focus(Id::new("hex")));
+            let focused = pen.ctx.memory(|m| m.has_focus(Id::unique("hex")));
             let ring = if self.hex_bad { Stroke::new(1.0, Color32::from_rgb(0xff, 0x4d, 0x5e)) } else if focused { Stroke::new(1.0, pen.a(dim())) } else { Stroke::NONE };
             pen.shape(Shape::Rect(egui::epaint::RectShape::new(field, 6.0, rgba(255, 255, 255, 0.08 * pen.o), ring, StrokeKind::Inside)));
             if pen.live {

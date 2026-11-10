@@ -33,10 +33,6 @@ pub fn now_ms() -> f64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64() * 1000.0).unwrap_or(0.0)
 }
 
-fn fade_c(c: Color32, o: f32) -> Color32 {
-    alpha(c, o)
-}
-
 /// Text to draw as a mesh, moved by `xf`; with `blur` > 0 it is a soft shadow.
 pub struct TextDraw {
     pub galley: Arc<Galley>,
@@ -73,14 +69,6 @@ impl Group {
         if color.a() > 0 {
             self.texts.push(TextDraw { galley: galley.clone(), pos, color, xf, offset, blur });
         }
-    }
-    /// Text with the shadow a see-through card gives it.
-    fn text_clear(&mut self, galley: &Arc<Galley>, pos: Pos2, color: Color32, clear: bool, o: f32) {
-        if clear {
-            self.text_xf(galley, pos, rgba(0, 0, 0, 0.9 * o), TSTransform::IDENTITY, Vec2::ZERO, 1.0);
-            self.text_xf(galley, pos, rgba(0, 0, 0, 0.85 * o), TSTransform::IDENTITY, vec2(0.0, 1.0), 3.0);
-        }
-        self.text(galley, pos, fade_c(color, o));
     }
     pub fn paint(self, painter: &egui::Painter, uv: Vec2) {
         for s in self.shapes {
@@ -648,7 +636,6 @@ impl Overlay {
         let lh = pf.size * 1.35;
         let mut rows = Vec::new();
         let mut y = 0.0;
-        let mut instrumental = false;
         let font = self.font();
         let note = |rows: &mut Vec<Row>, y: &mut f32, s: &str| {
             let italic_font = if font == "serif" { FontId::new(pf.size, fonts::family("serif", 400, true)) } else { pf.clone() };
@@ -680,7 +667,7 @@ impl Overlay {
         let cur = self.line_at(idx);
         let next_i = self.next_text_index(idx + 1);
         let gap = next_i.map(|i| self.lines[i].t - t).unwrap_or(f64::INFINITY);
-        instrumental = cur.map(|c| c.text.is_empty()).unwrap_or(true) && gap > 2.5 && gap.is_finite();
+        let instrumental = cur.map(|c| c.text.is_empty()).unwrap_or(true) && gap > 2.5 && gap.is_finite();
         let prev_i = (0..idx.max(0) as usize).rev().find(|&i| !self.lines[i].text.is_empty());
         let dim_row = |rows: &mut Vec<Row>, y: &mut f32, s: &str| {
             let g = text(ctx, s, pf.clone(), dim(), Txt { wrap: width, rows: 1, spacing: pls * z, line_height: Some(lh), ..Default::default() });
@@ -1294,7 +1281,7 @@ impl Overlay {
         }
 
         /* --- Drawing --- */
-        let painter = ctx.layer_painter(LayerId::new(Order::Background, Id::new("overlay"))).with_clip_rect(screen);
+        let painter = ctx.layer_painter(LayerId::new(Order::Background, Id::unique("overlay"))).with_clip_rect(screen);
         let mut grid = Group::default();
         let mut big = Group::default();
         let mut card = Group::default();
