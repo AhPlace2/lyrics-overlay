@@ -33,12 +33,14 @@ Spotify · YouTube in Chrome, Edge, Firefox or Brave · any player in Windows' m
 
 ### 🎵 Now playing card
 Cover, title, controls and the current lyric line. **Right-click** to hide it.
+<br>
 
 </td>
 <td width="50%" valign="top">
 
 ### 🔤 Big floating lyrics
 Word-by-word lines. Mix looks, colours, motions and fonts.
+<br>
 
 </td>
 </tr>
@@ -47,12 +49,14 @@ Word-by-word lines. Mix looks, colours, motions and fonts.
 
 ### 🎯 Timing that fits
 Lyrics off? Nudge them or press **Sync**. Saved per song.
+<br>
 
 </td>
 <td valign="top">
 
 ### 🎧 Song recognition
 Messy video title? It asks Shazam what's playing.
+<br>
 
 </td>
 </tr>
@@ -61,12 +65,14 @@ Messy video title? It asks Shazam what's playing.
 
 ### 💾 Instant and offline
 Lyrics are saved, so songs load instantly, even offline.
+<br>
 
 </td>
 <td valign="top">
 
 ### 🖱️ Stays out of your way
 Clicks pass through to the apps underneath.
+<br>
 
 </td>
 </tr>
@@ -75,12 +81,14 @@ Clicks pass through to the apps underneath.
 
 ### ⚡ Light and fast
 One 13 MB file, written in Rust, drawn with DirectX 12.
+<br>
 
 </td>
 <td valign="top">
 
 ### 🔄 Updates itself
 One click to update. No installer.
+<br>
 
 </td>
 </tr>
