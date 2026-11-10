@@ -20,6 +20,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 const GRID: f32 = 24.0;
 const MARGIN: f32 = 24.0;
 const SNAP: f32 = 12.0;
+/// The startup animation's length in seconds, and how long it waits for the window to show before it starts.
+const INTRO: f32 = 2.6;
+const INTRO_DELAY: f64 = 0.25;
+const INTRO_PENDING: f64 = f64::NEG_INFINITY;
 const TEXT: Color32 = Color32::from_rgb(0xf4, 0xf4, 0xf1);
 fn dim() -> Color32 {
     rgba(0xf4, 0xf4, 0xf1, 0.55)
@@ -263,6 +267,9 @@ pub struct Overlay {
     hover: Target,
     hover_since: f64,
     toast: Option<(String, f64)>,
+    /// The startup animation: when it began (seconds of egui time), INTRO_PENDING before the first frame, None
+    /// once it has played or when it is turned off.
+    intro: Option<f64>,
     play_override: Option<(bool, f64)>,
     sent_rect: Option<Option<[f64; 4]>>,
     guide_x: Option<f32>,
@@ -308,6 +315,7 @@ impl Overlay {
             hover: Target::None,
             hover_since: 0.0,
             toast: None,
+            intro: Some(INTRO_PENDING),
             play_override: None,
             sent_rect: None,
             guide_x: None,
@@ -940,6 +948,10 @@ impl Overlay {
                 *t0 = time;
             }
         }
+        if self.intro == Some(INTRO_PENDING) {
+            // Read from core: the overlay's own copy of the settings may not have arrived on the first frame.
+            self.intro = core().flag("startupAnimation").then_some(time + INTRO_DELAY);
+        }
         let now = now_ms();
         let mut wake: f64 = f64::INFINITY; // seconds
         let mut animating = false;
@@ -1367,6 +1379,19 @@ impl Overlay {
                 let r = Rect::from_min_size(pos2(screen.center().x - size.x / 2.0, 24.0 - 8.0 * (1.0 - k)), size);
                 top.shape(Shape::rect_filled(r, 8.0, rgba(14, 14, 18, 0.84 * k)));
                 top.text(&g, r.min + vec2(16.0, 9.0), alpha(TEXT, k));
+            }
+        }
+
+        // Startup animation.
+        if let Some(t0) = self.intro {
+            let e = (time - t0) as f32;
+            if e >= INTRO {
+                self.intro = None;
+            } else {
+                if e >= 0.0 {
+                    paint_intro(ctx, &mut top, screen, e, accent);
+                }
+                animating = true;
             }
         }
 
@@ -1872,6 +1897,62 @@ fn paint_word(g: &mut Group, gl: &Arc<Galley>, pos: Pos2, xf: TSTransform, c: Co
 }
 
 /// Words into rows no wider than `max`, as evenly long as they can be (CSS text-wrap: balance).
+/// The startup animation: the app's badge pops in at the middle of the screen, its three lyric lines grow in one
+/// after another, the name slides in beside it, then it all lifts away. `e` is seconds since it began.
+fn paint_intro(ctx: &Context, g: &mut Group, screen: Rect, e: f32, accent: Color32) {
+    let at = |a: f32, b: f32| ease(((e - a) / (b - a)).clamp(0.0, 1.0));
+    let n = |x: f32| x / INTRO;
+    let [o, lift] = keyframes(&[(0.0, [0.0, 0.0]), (n(0.25), [1.0, 0.0]), (n(2.05), [1.0, 0.0]), (n(INTRO), [0.0, -14.0])], e / INTRO);
+    let scale = 0.92 + 0.08 * at(0.0, 0.35);
+    if o <= 0.0 {
+        return;
+    }
+
+    let title = line(ctx, "Lyrics Overlay", fonts::inter(800, 26.0), TEXT);
+    let (pad, badge, gap) = (18.0, 64.0, 16.0);
+    let text_w = title.size().x;
+    let size = vec2(pad + badge + gap + text_w + pad + 4.0, pad * 2.0 + badge);
+    let pill = Rect::from_center_size(screen.center() + vec2(0.0, -screen.height() * 0.06), size);
+    let xf = about(pill.center(), scale, vec2(0.0, lift + 6.0 * (1.0 - at(0.0, 0.35))));
+
+    let mut shapes = vec![
+        Shape::Rect(Shadow { offset: [0, 8], blur: 32, spread: 0, color: rgba(0, 0, 0, 0.45 * o) }.as_shape(pill, 18.0)),
+        Shape::rect_filled(pill, 18.0, rgba(14, 14, 18, 0.88 * o)),
+    ];
+
+    // The badge: pops past full size and settles, with a soft glow in the accent colour.
+    let pop = keyframes(&[(0.0, [0.0]), (n(0.1), [0.0]), (n(0.38), [1.12]), (n(0.55), [1.0]), (1.0, [1.0])], e / INTRO)[0];
+    if pop > 0.0 {
+        let c = pos2(pill.left() + pad + badge / 2.0, pill.center().y);
+        let r = Rect::from_center_size(c, vec2(badge, badge) * pop);
+        shapes.push(Shape::Rect(Shadow { offset: [0, 0], blur: 28, spread: 0, color: alpha(accent, 0.55 * o * at(0.2, 0.6)) }.as_shape(r, 14.0 * pop)));
+        shapes.push(Shape::rect_filled(r, 14.0 * pop, alpha(accent, o)));
+        // The tray icon's three lines (on a 32-unit square), growing from the left one after another, then
+        // breathing gently like a level meter while it holds.
+        let u = r.width() / 32.0;
+        for (i, (y0, x1)) in [(9.0, 24.0), (15.0, 21.0), (21.0, 16.0)].into_iter().enumerate() {
+            let fi = i as f32;
+            let grow = at(0.35 + 0.08 * fi, 0.7 + 0.08 * fi);
+            let breathe = 1.0 - 0.14 * (0.5 - 0.5 * ((e - 0.9).max(0.0) * 5.5 + fi * 1.3).cos()) * at(0.8, 1.1);
+            let w = (x1 - 8.0) * grow * breathe;
+            if w > 0.0 {
+                let bar = Rect::from_min_size(r.min + vec2(8.0 * u, y0 * u), vec2(w.max(4.0) * u, 4.0 * u));
+                shapes.push(Shape::rect_filled(bar, 2.0 * u, alpha(Color32::WHITE, o * grow.min(1.0) * 1.0)));
+            }
+        }
+    }
+    for mut s in shapes {
+        s.transform(xf);
+        g.shape(s);
+    }
+
+    // The name slides in beside the badge.
+    let tx = pill.left() + pad + badge + gap;
+    let ty = pill.center().y - title.size().y / 2.0;
+    let k = at(0.4, 0.8);
+    g.text_xf(&title, pos2(tx - 10.0 * (1.0 - k), ty), alpha(TEXT, o * k), xf, Vec2::ZERO, 0.0);
+}
+
 fn balance(widths: &[f32], space: f32, max: f32) -> Vec<Vec<usize>> {
     let wrap = |limit: f32| -> Vec<Vec<usize>> {
         let mut rows: Vec<Vec<usize>> = vec![Vec::new()];

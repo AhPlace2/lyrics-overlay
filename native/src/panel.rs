@@ -652,7 +652,7 @@ impl Panel {
         let s = &state["settings"];
         update_banner(pen, &state["update"], acts);
         let card_on = s["showCard"].as_bool().unwrap_or(false);
-        let rows: [(&str, &str, bool, Option<&str>); 11] = [
+        let rows: [(&str, &str, bool, Option<&str>); 12] = [
             ("enabled", "Lyrics", false, Some("Ctrl+Alt+L")),
             ("showCard", "Now playing card", false, None),
             ("showCardLyrics", "Lyrics on the card", true, None),
@@ -664,6 +664,7 @@ impl Panel {
             ("recognise", "Recognise songs without lyrics", false, None),
             ("checkUpdates", "Check for updates", false, None),
             ("useGpu", "Use GPU", false, None),
+            ("startupAnimation", "Startup animation", false, None),
         ];
         // The card's own options fold away under its row; the arrow opens and closes them.
         let k = tween(pen.ctx, "card-more", if self.card_more { 1.0 } else { 0.0 }, 0.2);

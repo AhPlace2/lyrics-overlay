@@ -20,7 +20,7 @@ pub const ALIGNS: &[(&str, &str)] = &[("left", "Left"), ("center", "Centre"), ("
 pub const COLOUR_MODES: &[(&str, &str)] = &[("accent", "Colour"), ("rainbow", "Rainbow"), ("fade", "Fade"), ("cover", "From the cover")];
 pub const FONTS: &[(&str, &str)] =
     &[("clean", "Clean"), ("serif", "Serif"), ("pixel", "Pixel"), ("bold", "Poster"), ("round", "Round"), ("hand", "Hand")];
-const TOGGLES: &[&str] = &["enabled", "showCard", "showCardLyrics", "showBig", "showCover", "showArtist", "showProgress", "showControls", "recognise", "checkUpdates", "useGpu"];
+const TOGGLES: &[&str] = &["enabled", "showCard", "showCardLyrics", "showBig", "showCover", "showArtist", "showProgress", "showControls", "recognise", "checkUpdates", "useGpu", "startupAnimation"];
 
 fn defaults() -> Map<String, Value> {
     let v = json!({
@@ -56,6 +56,7 @@ fn defaults() -> Map<String, Value> {
         "recognise": true,
         "checkUpdates": true,
         "useGpu": true,
+        "startupAnimation": true,
     });
     v.as_object().unwrap().clone()
 }
