@@ -271,16 +271,15 @@ impl App {
             .with_window_level(WindowLevel::AlwaysOnTop)
             .with_skip_taskbar(true)
             .with_active(false)
+            // Hidden until it is a click-through tool window (below). Shown as a plain full-screen window, even for
+            // a moment, Chrome counts itself as covered and stops drawing video until something makes it look again.
+            .with_visible(false)
             .with_position(winit::dpi::PhysicalPosition::new(x, y))
             .with_inner_size(winit::dpi::PhysicalSize::new(w as u32, h as u32))
             // On the graphics card it draws into a DirectComposition visual instead of the window's own bitmap.
             .with_no_redirection_bitmap(gpu);
         winutil::GPU.store(gpu, std::sync::atomic::Ordering::Relaxed);
         let window = Arc::new(el.create_window(attrs).map_err(|e| e.to_string())?);
-        #[cfg(feature = "dx12")]
-        if gpu {
-            self.gpu = Some(gpu::Gpu::new(window.clone(), w as u32, h as u32)?);
-        }
         if let Ok(h) = window.window_handle() {
             if let RawWindowHandle::Win32(w) = h.as_raw() {
                 let hwnd = w.hwnd.get();
@@ -289,6 +288,12 @@ impl App {
                 self.panel.hwnd = Some(hwnd);
             }
         }
+        #[cfg(feature = "dx12")]
+        if gpu {
+            self.gpu = Some(gpu::Gpu::new(window.clone(), w as u32, h as u32)?);
+        }
+        // Styled and ready: show it. It never takes the focus (created inactive, and WS_EX_NOACTIVATE).
+        window.set_visible(true);
         let state = egui_winit::State::new(self.ctx.clone(), egui::ViewportId::ROOT, &window, Some(window.scale_factor() as f32), None, Some(8192));
         self.state = Some(state);
         self.window = Some(window);
