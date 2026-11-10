@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="560" viewBox="0 0 880 560" role="img" aria-labelledby="t d">
+  <title id="t">Lyrics Overlay 0.2.0 performance</title>
+  <desc id="d">Download: Electron 0.1.7 installer 108 MB, Rust 0.2.0 exe 13 MB. On disk: Electron 312 MB, Rust 13 MB. CPU while lyrics animate: Use GPU 3.5% of one core, CPU drawing 17.6%. RAM while lyrics animate: Use GPU 176 MB, CPU drawing 57 MB.</desc>
+  <style>
+    text { font-family: "Segoe UI", -apple-system, system-ui, Roboto, Helvetica, Arial, sans-serif; fill: #e8e8ee; }
+    .h { font-size: 15px; font-weight: 600; }
+    .s { font-size: 12px; fill: #9a9aa8; }
+    .l { font-size: 13px; fill: #c9c9d4; }
+    .v { font-size: 13px; font-weight: 600; }
+    .big { font-size: 22px; font-weight: 700; }
+    .tag { font-size: 12px; font-weight: 700; fill: #111; }
+  </style>
+  <rect width="880" height="560" rx="16" fill="#15151b"/>
+
+  <text x="32" y="44" class="big">Lyrics Overlay 0.2.0</text>
+  <text x="32" y="68" class="s">Rewritten in Rust. Draws on the GPU (DirectX 12), falls back to the CPU.</text>
+
+  <!-- Download -->
+  <text x="32" y="112" class="h">Download</text>
+  <rect x="682" y="96" width="166" height="22" rx="11" fill="#7ee0a1"/>
+  <text x="765" y="112" class="tag" text-anchor="middle">8× smaller</text>
+  <text x="32" y="143" class="l">Electron 0.1.7</text>
+  <rect x="200" y="128" width="520" height="22" rx="4" fill="#5d5d6b"/>
+  <text x="728" y="143" class="v">108 MB installer</text>
+  <text x="32" y="173" class="l">Rust 0.2.0</text>
+  <rect x="200" y="158" width="64" height="22" rx="4" fill="#8b5cf6"/>
+  <text x="272" y="173" class="v">13 MB exe</text>
+
+  <!-- On disk -->
+  <text x="32" y="228" class="h">On disk</text>
+  <rect x="682" y="212" width="166" height="22" rx="11" fill="#7ee0a1"/>
+  <text x="765" y="228" class="tag" text-anchor="middle">23× smaller</text>
+  <text x="32" y="259" class="l">Electron 0.1.7</text>
+  <rect x="200" y="244" width="520" height="22" rx="4" fill="#5d5d6b"/>
+  <text x="728" y="259" class="v">312 MB</text>
+  <text x="32" y="289" class="l">Rust 0.2.0</text>
+  <rect x="200" y="274" width="22" height="22" rx="4" fill="#8b5cf6"/>
+  <text x="230" y="289" class="v">13 MB</text>
+
+  <!-- CPU -->
+  <text x="32" y="344" class="h">CPU while lyrics animate</text>
+  <text x="220" y="344" class="s">% of one core, Rust 0.2.0</text>
+  <rect x="682" y="328" width="166" height="22" rx="11" fill="#7ee0a1"/>
+  <text x="765" y="344" class="tag" text-anchor="middle">5× less with GPU</text>
+  <text x="32" y="375" class="l">Use GPU (default)</text>
+  <rect x="200" y="360" width="103" height="22" rx="4" fill="#8b5cf6"/>
+  <text x="311" y="375" class="v">3.5%</text>
+  <text x="32" y="405" class="l">CPU drawing</text>
+  <rect x="200" y="390" width="520" height="22" rx="4" fill="#4b8bf5"/>
+  <text x="728" y="405" class="v">17.6%</text>
+
+  <!-- RAM -->
+  <text x="32" y="460" class="h">RAM while lyrics animate</text>
+  <text x="220" y="460" class="s">Rust 0.2.0</text>
+  <text x="32" y="491" class="l">Use GPU (default)</text>
+  <rect x="200" y="476" width="520" height="22" rx="4" fill="#8b5cf6"/>
+  <text x="728" y="491" class="v">176 MB</text>
+  <text x="32" y="521" class="l">CPU drawing</text>
+  <rect x="200" y="506" width="168" height="22" rx="4" fill="#4b8bf5"/>
+  <text x="376" y="521" class="v">57 MB</text>
+
+  <text x="848" y="548" class="s" text-anchor="end">Ryzen 7 9800X3D · RTX 4080 SUPER · Windows 11</text>
+</svg>
