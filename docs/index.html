@@ -1,0 +1,543 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lyrics Overlay</title>
+<meta name="description" content="Synced lyrics floating over your Windows desktop, for whatever is playing. Free, open source, one 13 MB file.">
+<meta property="og:title" content="Lyrics Overlay">
+<meta property="og:description" content="Synced lyrics floating over your Windows desktop, for whatever is playing.">
+<meta property="og:image" content="https://ahplace2.github.io/lyrics-overlay/media/rainbow.png">
+<meta name="theme-color" content="#0b0b10">
+<link rel="icon" href="media/icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Caveat:wght@700&family=Instrument+Serif:ital@0;1&family=Inter:wght@400;600;800&family=Nunito:wght@900&family=Pixelify+Sans:wght@700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0b0b10;
+    --bg2: #12121a;
+    --card: #17171f;
+    --line: rgba(255, 255, 255, .09);
+    --fg: #ececf2;
+    --dim: #9a9aab;
+    --lime: #a3e635;
+    --lime-ink: #10140a;
+    --violet: #8b5cf6;
+    --orange: #fbb540;
+    --radius: 14px;
+    --max: 1120px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.6 Inter, "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  a { color: inherit; }
+  img { max-width: 100%; display: block; }
+  .wrap { max-width: var(--max); margin: 0 auto; padding: 0 20px; }
+  kbd {
+    font: 600 12px/1 Inter, system-ui, sans-serif; padding: 4px 7px; border-radius: 6px;
+    background: #23232e; border: 1px solid #33333f; border-bottom-width: 2px; white-space: nowrap;
+  }
+
+  /* nav */
+  nav {
+    position: sticky; top: 0; z-index: 20;
+    background: rgba(11, 11, 16, .8); backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line);
+  }
+  nav .wrap { display: flex; align-items: center; gap: 24px; height: 60px; }
+  .logo { display: flex; align-items: center; gap: 10px; font-weight: 800; text-decoration: none; }
+  .logo img { width: 28px; height: 28px; }
+  nav .links { display: flex; gap: 22px; margin-left: auto; font-size: 14px; }
+  nav .links a { color: var(--dim); text-decoration: none; }
+  nav .links a:hover { color: var(--fg); }
+  @media (max-width: 760px) { nav .links { display: none; } nav .btn { margin-left: auto; } }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 12px 20px; border-radius: 10px; font-weight: 600; font-size: 15px;
+    text-decoration: none; border: 1px solid transparent; transition: transform .15s, background .15s;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn.primary { background: var(--lime); color: var(--lime-ink); }
+  .btn.primary:hover { background: #b5f04a; }
+  .btn.ghost { border-color: var(--line); background: rgba(255,255,255,.03); }
+  .btn.ghost:hover { background: rgba(255,255,255,.07); }
+  .btn.small { padding: 8px 14px; font-size: 14px; }
+  .btn svg { width: 18px; height: 18px; flex: none; }
+
+  /* hero */
+  .hero { padding: 72px 0 32px; text-align: center; position: relative; }
+  .hero::before {
+    content: ""; position: absolute; inset: -120px 0 auto; height: 560px; z-index: -1;
+    background:
+      radial-gradient(40% 50% at 30% 30%, rgba(139, 92, 246, .22), transparent 70%),
+      radial-gradient(35% 45% at 72% 25%, rgba(163, 230, 53, .14), transparent 70%);
+  }
+  .pill {
+    display: inline-flex; gap: 8px; align-items: center; font-size: 13px; color: var(--dim);
+    padding: 5px 12px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,.03);
+  }
+  .pill b { color: var(--lime); font-weight: 600; }
+  h1 {
+    font-size: clamp(38px, 6.4vw, 72px); line-height: 1.04; letter-spacing: -.035em;
+    margin: 20px auto 18px; max-width: 15ch; font-weight: 800;
+  }
+  h1 em { font: italic 400 1.08em/1 "Instrument Serif", Georgia, serif; letter-spacing: -.01em; color: var(--lime); }
+  .lede { color: var(--dim); font-size: clamp(16px, 2vw, 19px); max-width: 52ch; margin: 0 auto 30px; }
+  .cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .fine { font-size: 13px; color: var(--dim); margin-top: 14px; }
+
+  /* demo */
+  .demo { padding: 40px 0 24px; }
+  .stage {
+    position: relative; border-radius: 18px; overflow: hidden; border: 1px solid var(--line);
+    aspect-ratio: 16 / 8; min-height: 300px;
+    background:
+      radial-gradient(60% 80% at 80% 100%, #3b1d6e 0%, transparent 60%),
+      radial-gradient(50% 70% at 10% 0%, #0f3b4a 0%, transparent 60%),
+      linear-gradient(160deg, #101018, #07070b);
+    box-shadow: 0 30px 80px -30px rgba(0,0,0,.8);
+  }
+  .stage .taskbar {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 34px;
+    background: rgba(20, 20, 28, .75); backdrop-filter: blur(8px); border-top: 1px solid var(--line);
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .stage .taskbar i { width: 18px; height: 18px; border-radius: 5px; background: rgba(255,255,255,.14); }
+  .stage .taskbar i:first-child { background: #4b8bf5; }
+  .np {
+    position: absolute; top: 14px; left: 14px; width: min(260px, 46%);
+    background: rgba(24, 24, 30, .92); border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px; font-size: 12px; line-height: 1.35; box-shadow: 0 10px 30px rgba(0,0,0,.4);
+  }
+  .np .top { display: flex; gap: 10px; align-items: center; }
+  .np .cover {
+    width: 40px; height: 40px; border-radius: 6px; flex: none;
+    background: conic-gradient(from 210deg, var(--violet), #ec4899, var(--orange), var(--lime), var(--violet));
+  }
+  .np .t { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .np .a { color: var(--dim); }
+  .np .bar { height: 3px; border-radius: 3px; background: rgba(255,255,255,.12); margin: 9px 0 6px; overflow: hidden; }
+  .np .bar span { display: block; height: 100%; width: 0; background: var(--lime); }
+  .np .line { color: var(--lime); font-weight: 600; min-height: 2.7em; }
+  .np .times { display: flex; justify-content: space-between; color: var(--dim); font-size: 10px; }
+  @media (max-width: 560px) { .np .line, .np .times { display: none; } }
+
+  .lyrics {
+    position: absolute; left: 4%; right: 4%; top: 56%; transform: translateY(-50%);
+    text-align: center; font-size: clamp(22px, 4.4vw, 52px); line-height: 1.2;
+    font-weight: 800; pointer-events: none;
+  }
+  .w { display: inline-block; white-space: pre; }
+  .w > span { display: inline-block; color: var(--c); opacity: 0; }
+  .w.on > span { opacity: 1; }
+
+  /* fonts */
+  .f-clean { font-family: Inter, system-ui, sans-serif; font-weight: 800; }
+  .f-serif { font-family: "Instrument Serif", Georgia, serif; font-style: italic; font-weight: 400; font-size: 1.15em; }
+  .f-pixel { font-family: "Pixelify Sans", monospace; font-weight: 700; }
+  .f-poster { font-family: "Bebas Neue", Impact, sans-serif; font-weight: 400; font-size: 1.2em; letter-spacing: .02em; }
+  .f-round { font-family: Nunito, system-ui, sans-serif; font-weight: 900; }
+  .f-hand { font-family: Caveat, cursive; font-weight: 700; font-size: 1.25em; }
+
+  /* looks */
+  .l-plain .w > span { text-shadow: 0 2px 6px rgba(0,0,0,.6); }
+  .l-glow .w > span { text-shadow: 0 0 10px var(--c), 0 0 26px var(--c); }
+  .l-outline .w > span { -webkit-text-stroke: .09em #000; paint-order: stroke fill; text-shadow: 0 3px 8px rgba(0,0,0,.5); }
+  .l-depth .w > span {
+    text-shadow: 1px 1px 0 var(--d), 2px 2px 0 var(--d), 3px 3px 0 var(--d), 4px 4px 0 var(--d), 6px 8px 14px rgba(0,0,0,.6);
+  }
+
+  /* words come in */
+  .e-pop .w.on > span { animation: pop .35s cubic-bezier(.3, 1.6, .5, 1) both; }
+  .e-slide .w.on > span { animation: slide .35s ease-out both; }
+  .e-drop .w.on > span { animation: drop .4s cubic-bezier(.3, 1.4, .5, 1) both; }
+  .e-fade .w.on > span { animation: fade .5s ease both; }
+  @keyframes pop { from { transform: scale(.3); opacity: 0; } to { transform: none; opacity: 1; } }
+  @keyframes slide { from { transform: translateX(-.6em); opacity: 0; } to { transform: none; opacity: 1; } }
+  @keyframes drop { from { transform: translateY(-.8em); opacity: 0; } to { transform: none; opacity: 1; } }
+  @keyframes fade { from { opacity: 0; filter: blur(6px); } to { opacity: 1; filter: none; } }
+
+  /* motion */
+  .m-wave .w { animation: wave 1.6s ease-in-out infinite; animation-delay: calc(var(--i) * -.18s); }
+  .m-bounce .w { animation: bounce 1s ease-in-out infinite; animation-delay: calc(var(--i) * -.12s); }
+  .m-pulse .w { animation: pulse 1.4s ease-in-out infinite; }
+  .m-float .lyrics-in { animation: float 4s ease-in-out infinite; display: inline-block; }
+  @keyframes wave { 50% { transform: translateY(-.12em); } }
+  @keyframes bounce { 0%, 100% { transform: none; } 30% { transform: translateY(-.18em); } 55% { transform: translateY(.03em); } }
+  @keyframes pulse { 50% { transform: scale(1.06); } }
+  @keyframes float { 0%, 100% { transform: translateY(0) rotate(-.6deg); } 50% { transform: translateY(-.25em) rotate(.6deg); } }
+  @media (prefers-reduced-motion: reduce) { .w, .lyrics-in, .w > span { animation: none !important; } }
+
+  .controls {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px 22px;
+    margin-top: 16px; padding: 18px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg2);
+  }
+  .group label { display: block; font-size: 12px; color: var(--dim); margin-bottom: 7px; text-transform: uppercase; letter-spacing: .08em; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chips button {
+    appearance: none; border: 1px solid var(--line); background: #1d1d27; color: var(--fg);
+    font: 600 13px/1 Inter, system-ui, sans-serif; padding: 8px 11px; border-radius: 7px; cursor: pointer;
+  }
+  .chips button:hover { background: #262632; }
+  .chips button[aria-pressed="true"] { background: var(--lime); color: var(--lime-ink); border-color: var(--lime); }
+  .chips .sw { width: 30px; height: 30px; padding: 0; border-radius: 50%; border: 2px solid transparent; }
+  .chips .sw[aria-pressed="true"] { border-color: #fff; background: var(--s); }
+  .demo .note { text-align: center; color: var(--dim); font-size: 13px; margin-top: 10px; }
+
+  /* sections */
+  section { padding: 72px 0; }
+  .eyebrow { color: var(--lime); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .12em; }
+  h2 { font-size: clamp(28px, 4vw, 42px); letter-spacing: -.025em; line-height: 1.1; margin: 8px 0 14px; }
+  .sub { color: var(--dim); max-width: 60ch; margin: 0 0 36px; }
+
+  .features { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
+  .feature { padding: 22px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); }
+  .feature .ic { font-size: 22px; line-height: 1; margin-bottom: 14px; }
+  .feature h3 { margin: 0 0 6px; font-size: 17px; }
+  .feature p { margin: 0; color: var(--dim); font-size: 15px; }
+
+  .shots { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
+  .shots figure { margin: 0; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--card); }
+  .shots figure.wide { grid-column: 1 / -1; }
+  .shots img { width: 100%; height: auto; background: #000; }
+  .shots figcaption { padding: 12px 16px; font-size: 14px; color: var(--dim); }
+  .shots figcaption b { color: var(--fg); }
+  @media (max-width: 760px) { .shots { grid-template-columns: 1fr; } }
+
+  .perf { display: grid; grid-template-columns: 1.4fr 1fr; gap: 28px; align-items: center; }
+  .perf img { border-radius: var(--radius); border: 1px solid var(--line); }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .stat { padding: 18px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); }
+  .stat b { display: block; font-size: 30px; letter-spacing: -.02em; color: var(--lime); line-height: 1.1; }
+  .stat span { color: var(--dim); font-size: 14px; }
+  @media (max-width: 860px) { .perf { grid-template-columns: 1fr; } }
+
+  .steps { counter-reset: s; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+  .step { position: relative; padding: 22px 22px 22px 70px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); }
+  .step::before {
+    counter-increment: s; content: counter(s); position: absolute; left: 20px; top: 20px;
+    width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+    background: rgba(163, 230, 53, .12); color: var(--lime); font-weight: 800;
+  }
+  .step h3 { margin: 0 0 4px; font-size: 16px; }
+  .step p { margin: 0; color: var(--dim); font-size: 14.5px; }
+  .callout {
+    margin-top: 16px; padding: 14px 18px; border-radius: 10px; font-size: 14.5px;
+    background: rgba(251, 181, 64, .08); border: 1px solid rgba(251, 181, 64, .25); color: #f3dcb0;
+  }
+
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  td { padding: 12px 14px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  td:first-child { width: 42%; }
+  td:last-child { color: var(--dim); }
+  .table { border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); overflow: hidden; }
+  .table tr:last-child td { border-bottom: 0; }
+  @media (max-width: 560px) { td { display: block; width: auto !important; border: 0; padding: 4px 14px; } tr { display: block; padding: 10px 0; border-bottom: 1px solid var(--line); } }
+
+  .privacy { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+  .privacy div { padding: 18px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); font-size: 14.5px; color: var(--dim); }
+  .privacy b { color: var(--fg); display: block; margin-bottom: 4px; }
+
+  .final { text-align: center; padding: 90px 0; }
+  .final h2 { margin-bottom: 24px; }
+
+  footer { border-top: 1px solid var(--line); padding: 28px 0 40px; color: var(--dim); font-size: 13.5px; }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 10px 24px; justify-content: space-between; }
+  footer a { color: var(--dim); }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="logo" href="#"><img src="media/icon.png" alt="">Lyrics Overlay</a>
+    <div class="links">
+      <a href="#demo">Demo</a>
+      <a href="#features">Features</a>
+      <a href="#install">Install</a>
+      <a href="#privacy">Privacy</a>
+      <a href="https://github.com/AhPlace2/lyrics-overlay">GitHub</a>
+    </div>
+    <a class="btn primary small dl" href="https://github.com/AhPlace2/lyrics-overlay/releases/latest/download/lyrics-overlay.exe">Download</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <span class="pill"><b class="ver">v0.2.0</b> Rewritten in Rust · 13 MB · free &amp; open source</span>
+    <h1>Lyrics that float over <em>your desktop</em></h1>
+    <p class="lede">Synced, word-by-word lyrics for whatever is playing: Spotify, YouTube in your browser, or any player in Windows' media controls.</p>
+    <div class="cta">
+      <a class="btn primary dl" href="https://github.com/AhPlace2/lyrics-overlay/releases/latest/download/lyrics-overlay.exe">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.5 10 4.5v7H3zm0 13 7 1v-7H3zm8-14.2L21 3v8.5H11zM11 19.7 21 21v-8.5H11z"/></svg>
+        Download for Windows
+      </a>
+      <a class="btn ghost" href="https://github.com/AhPlace2/lyrics-overlay">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.6 22.4c.6.1.8-.3.8-.6v-2c-3.2.7-3.9-1.5-3.9-1.5-.5-1.3-1.3-1.7-1.3-1.7-1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.2 1.2a11 11 0 0 1 5.8 0c2.2-1.5 3.2-1.2 3.2-1.2.6 1.6.2 2.8.1 3.1.8.8 1.2 1.9 1.2 3.1 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A11.5 11.5 0 0 0 12 .5Z"/></svg>
+        View on GitHub
+      </a>
+    </div>
+    <p class="fine">Windows 10 &amp; 11 · No installer · Updates itself</p>
+  </div>
+</header>
+
+<div class="demo" id="demo">
+  <div class="wrap">
+    <div class="stage" aria-label="Animated demo of the overlay on a desktop">
+      <div class="np">
+        <div class="top">
+          <div class="cover"></div>
+          <div style="min-width:0">
+            <div class="t">Demo Song</div>
+            <div class="a">Lyrics Overlay</div>
+          </div>
+        </div>
+        <div class="bar"><span id="prog"></span></div>
+        <div class="times"><span id="tNow">0:00</span><span id="tEnd">0:00</span></div>
+        <div class="line" id="npLine"></div>
+      </div>
+      <div class="lyrics" id="lyrics"></div>
+      <div class="taskbar"><i></i><i></i><i></i><i></i><i></i></div>
+    </div>
+
+    <div class="controls" id="controls">
+      <div class="group"><label>Look</label><div class="chips" data-k="look">
+        <button data-v="depth">Depth (3D)</button><button data-v="glow">Glow</button><button data-v="outline">Outline</button><button data-v="plain">Plain</button>
+      </div></div>
+      <div class="group"><label>Motion</label><div class="chips" data-k="motion">
+        <button data-v="none">None</button><button data-v="wave">Wave</button><button data-v="bounce">Bounce</button><button data-v="pulse">Pulse</button><button data-v="float">Float</button>
+      </div></div>
+      <div class="group"><label>Words come in</label><div class="chips" data-k="enter">
+        <button data-v="raw">Raw</button><button data-v="pop">Pop</button><button data-v="slide">Slide</button><button data-v="drop">Drop</button><button data-v="fade">Fade</button>
+      </div></div>
+      <div class="group"><label>Font</label><div class="chips" data-k="font">
+        <button data-v="clean">Clean</button><button data-v="serif">Serif</button><button data-v="pixel">Pixel</button><button data-v="poster">Poster</button><button data-v="round">Round</button><button data-v="hand">Hand</button>
+      </div></div>
+      <div class="group"><label>Colour</label><div class="chips" data-k="colour">
+        <button class="sw" data-v="rainbow" title="Rainbow" style="--s:conic-gradient(#f87171,#facc15,#4ade80,#38bdf8,#a78bfa,#f472b6,#f87171);background:var(--s)"></button>
+        <button class="sw" data-v="lime" title="Lime" style="--s:#a3e635;background:var(--s)"></button>
+        <button class="sw" data-v="white" title="White" style="--s:#f5f5f5;background:var(--s)"></button>
+        <button class="sw" data-v="pink" title="Pink" style="--s:#f472b6;background:var(--s)"></button>
+        <button class="sw" data-v="sky" title="Sky" style="--s:#38bdf8;background:var(--s)"></button>
+        <button class="sw" data-v="gold" title="Gold" style="--s:#fbbf24;background:var(--s)"></button>
+      </div></div>
+    </div>
+    <p class="note">This is a web mock-up of the look settings. The real app draws them natively on your desktop.</p>
+  </div>
+</div>
+
+<section id="features">
+  <div class="wrap">
+    <div class="eyebrow">Features</div>
+    <h2>Everything in one small file</h2>
+    <p class="sub">Starts with Windows, finds the lyrics, keeps them in time, and stays out of your way.</p>
+    <div class="features">
+      <div class="feature"><div class="ic">🎵</div><h3>Now playing card</h3><p>Cover, title, controls and the current lyric line. Right-click to hide it.</p></div>
+      <div class="feature"><div class="ic">🔤</div><h3>Big floating lyrics</h3><p>Word-by-word lines. Mix looks, colours, motions and fonts.</p></div>
+      <div class="feature"><div class="ic">🎯</div><h3>Timing that fits</h3><p>Lyrics off? Nudge them or press Sync. Saved per song.</p></div>
+      <div class="feature"><div class="ic">🎧</div><h3>Song recognition</h3><p>Messy video title? It listens and works out what's playing.</p></div>
+      <div class="feature"><div class="ic">💾</div><h3>Instant and offline</h3><p>Lyrics are saved, so songs load instantly, even offline.</p></div>
+      <div class="feature"><div class="ic">🖱️</div><h3>Stays out of your way</h3><p>Clicks pass through to the apps underneath.</p></div>
+      <div class="feature"><div class="ic">⚡</div><h3>Light and fast</h3><p>One 13 MB file, written in Rust, drawn with DirectX 12.</p></div>
+      <div class="feature"><div class="ic">🔄</div><h3>Updates itself</h3><p>One click to update. No installer.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="action" style="padding-top:24px">
+  <div class="wrap">
+    <div class="eyebrow">In action</div>
+    <h2>See it on a real desktop</h2>
+    <p class="sub">Recorded from the app, running over a normal Windows desktop.</p>
+    <div class="shots">
+      <figure class="wide"><img src="media/lyrics.gif" alt="Lyrics typing in word by word over the desktop, with the now playing card in the corner" loading="lazy" width="1280" height="524"><figcaption><b>Word by word</b>, timed to the song</figcaption></figure>
+      <figure><img src="media/styles.gif" alt="Switching colours, fonts and motion in the settings while lyrics play" loading="lazy"><figcaption><b>Change the look live</b>: colours, fonts, motion</figcaption></figure>
+      <figure><img src="media/arrange.gif" alt="Arrange mode: resizing and moving the big lyrics" loading="lazy"><figcaption><b>Arrange</b>: resize the lyrics and put them anywhere</figcaption></figure>
+      <figure><img src="media/drag.gif" alt="Dragging the card around the screen with snap guides" loading="lazy"><figcaption><b>Drag the card</b>, it snaps to lines and a grid</figcaption></figure>
+      <figure><img src="media/rainbow.png" alt="Rainbow 3D lyrics next to the settings panel" loading="lazy"><figcaption><b>Depth (3D)</b> look with rainbow colour</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section id="perf" style="padding-top:24px">
+  <div class="wrap">
+    <div class="eyebrow">Faster in Rust</div>
+    <h2>Same app, a fraction of the weight</h2>
+    <p class="sub">Version 0.2.0 rewrote the Electron app in Rust. Drawing on the graphics card uses about 5× less CPU while lyrics move. Prefer low memory? Turn off <b>Use GPU</b>.</p>
+    <div class="perf">
+      <img src="media/performance.svg" alt="Download: Electron installer 108 MB vs Rust exe 13 MB. On disk: 312 MB vs 13 MB. CPU while lyrics animate: 3.5% with GPU, 17.6% on CPU." loading="lazy">
+      <div class="stats">
+        <div class="stat"><b>8×</b><span>smaller download</span></div>
+        <div class="stat"><b>23×</b><span>less disk space</span></div>
+        <div class="stat"><b>3.5%</b><span>of one core while animating</span></div>
+        <div class="stat"><b>0</b><span>installers, accounts or trackers</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="install" style="padding-top:24px">
+  <div class="wrap">
+    <div class="eyebrow">Install</div>
+    <h2>Up and running in a minute</h2>
+    <p class="sub">Needs Windows 10 or 11.</p>
+    <div class="steps">
+      <div class="step"><h3>Download</h3><p>Grab <b>lyrics-overlay.exe</b> from the <a href="https://github.com/AhPlace2/lyrics-overlay/releases/latest">latest release</a>.</p></div>
+      <div class="step"><h3>Pick a folder</h3><p>Keep it somewhere you can write to, like <code>%LOCALAPPDATA%\Programs\Lyrics Overlay</code>, so it can update itself.</p></div>
+      <div class="step"><h3>Run it</h3><p>Double-click, then play a song. Right-click the exe → <b>Pin to Start</b> to find it later.</p></div>
+    </div>
+    <div class="callout">The app isn't code-signed yet, so Windows may show <i>"Windows protected your PC"</i>. Click <b>More info → Run anyway</b>. To remove it, quit from the tray icon and delete the file.</div>
+
+    <h3 style="margin:48px 0 14px;font-size:20px">Shortcuts</h3>
+    <div class="table"><table>
+      <tr><td><kbd>Ctrl</kbd> <kbd>Alt</kbd> <kbd>L</kbd></td><td>Show or hide lyrics</td></tr>
+      <tr><td><kbd>Ctrl</kbd> <kbd>Alt</kbd> <kbd>S</kbd></td><td>Sync: press the moment the line on screen is sung</td></tr>
+      <tr><td><kbd>Ctrl</kbd> <kbd>Alt</kbd> <kbd>↑</kbd> / <kbd>↓</kbd></td><td>Lyrics earlier / later by 0.25 s</td></tr>
+      <tr><td><kbd>Ctrl</kbd> <kbd>Alt</kbd> <kbd>O</kbd> / <kbd>P</kbd></td><td>Next / previous lyrics version</td></tr>
+      <tr><td><kbd>Ctrl</kbd> <kbd>Alt</kbd> <kbd>M</kbd></td><td>Arrange: drag and resize the card and the lyrics</td></tr>
+      <tr><td>Right-click the card</td><td>Hide it to click what's under it</td></tr>
+    </table></div>
+  </div>
+</section>
+
+<section id="privacy" style="padding-top:24px">
+  <div class="wrap">
+    <div class="eyebrow">Privacy</div>
+    <h2>No account. No tracking.</h2>
+    <p class="sub">The app only talks to the services it needs to find lyrics and covers.</p>
+    <div class="privacy">
+      <div><b>LRCLIB &amp; NetEase</b>Song title, artist and length, to find lyrics.</div>
+      <div><b>iTunes</b>Title and artist, to find a cover when the player shares none.</div>
+      <div><b>Shazam</b>An audio fingerprint (not the audio) of ~11 s, only when song recognition is on and no lyrics were found.</div>
+      <div><b>GitHub</b>Once a day, which version is newest, only when <i>Check for updates</i> is on.</div>
+    </div>
+  </div>
+</section>
+
+<div class="final">
+  <div class="wrap">
+    <h2>Put the words on screen.</h2>
+    <div class="cta">
+      <a class="btn primary dl" href="https://github.com/AhPlace2/lyrics-overlay/releases/latest/download/lyrics-overlay.exe">Download for Windows</a>
+      <a class="btn ghost" href="https://github.com/AhPlace2/lyrics-overlay/releases">All releases</a>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <span>Lyrics Overlay · open source under <a href="https://github.com/AhPlace2/lyrics-overlay/blob/main/LICENSE">AGPL-3.0</a></span>
+    <span>Lyrics belong to their artists and publishers; none are included in the app.</span>
+  </div>
+</footer>
+
+<script>
+(() => {
+  // Original demo lines (not real song lyrics).
+  const LINES = [
+    "Lyrics float right over your desktop",
+    "Every word lands right on the beat",
+    "Clicks pass straight through to what's below",
+    "Pick a look, a colour and a motion",
+    "Then just press play and sing along",
+  ];
+  const LINE_MS = 3600;
+  const TOTAL = LINES.length * LINE_MS;
+  const state = { look: "depth", motion: "float", enter: "pop", font: "clean", colour: "rainbow" };
+  const COLOURS = { lime: "#a3e635", white: "#f5f5f5", pink: "#f472b6", sky: "#38bdf8", gold: "#fbbf24" };
+
+  const $ = (id) => document.getElementById(id);
+  const lyricsEl = $("lyrics"), npLine = $("npLine"), prog = $("prog"), tNow = $("tNow"), tEnd = $("tEnd");
+  const fmt = (ms) => { const s = Math.floor(ms / 1000); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
+  tEnd.textContent = fmt(TOTAL);
+
+  function darken(hex, f) {
+    const n = parseInt(hex.slice(1), 16);
+    const c = (v) => Math.round(v * f).toString(16).padStart(2, "0");
+    return "#" + c(n >> 16) + c((n >> 8) & 255) + c(n & 255);
+  }
+  function wordColour(i, n) {
+    if (state.colour === "rainbow") {
+      const h = Math.round((i / Math.max(1, n)) * 300);
+      return [`hsl(${h} 85% 66%)`, `hsl(${h} 70% 28%)`];
+    }
+    const c = COLOURS[state.colour];
+    return [c, darken(c, .35)];
+  }
+
+  let current = -1, words = [];
+  function build(idx) {
+    current = idx;
+    const parts = LINES[idx].split(" ");
+    const inner = document.createElement("span");
+    inner.className = "lyrics-in";
+    words = parts.map((txt, i) => {
+      const w = document.createElement("span");
+      w.className = "w";
+      w.style.setProperty("--i", i);
+      const s = document.createElement("span");
+      s.textContent = txt + (i < parts.length - 1 ? " " : "");
+      w.appendChild(s);
+      inner.appendChild(w);
+      return w;
+    });
+    lyricsEl.replaceChildren(inner);
+    paint();
+    npLine.textContent = LINES[idx];
+  }
+  function paint() {
+    lyricsEl.className = `lyrics l-${state.look} m-${state.motion} e-${state.enter} f-${state.font}`;
+    words.forEach((w, i) => {
+      const [c, d] = wordColour(i, words.length - 1);
+      w.style.setProperty("--c", c);
+      w.style.setProperty("--d", d);
+    });
+  }
+
+  const start = performance.now();
+  function tick(now) {
+    const t = (now - start) % TOTAL;
+    const idx = Math.floor(t / LINE_MS);
+    if (idx !== current) build(idx);
+    const local = t - idx * LINE_MS;
+    const shown = Math.min(words.length, Math.floor(local / (LINE_MS * .62 / words.length)) + 1);
+    words.forEach((w, i) => w.classList.toggle("on", i < shown));
+    prog.style.width = (t / TOTAL * 100) + "%";
+    tNow.textContent = fmt(t);
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  // controls
+  document.querySelectorAll("#controls .chips").forEach((group) => {
+    const k = group.dataset.k;
+    const sync = () => group.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === state[k])));
+    group.addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      state[k] = b.dataset.v;
+      sync();
+      paint();
+    });
+    sync();
+  });
+
+  // Show the newest version number and download size from GitHub (falls back to the static text).
+  fetch("https://api.github.com/repos/AhPlace2/lyrics-overlay/releases/latest")
+    .then((r) => r.ok ? r.json() : null)
+    .then((rel) => {
+      if (!rel || !rel.tag_name) return;
+      document.querySelectorAll(".ver").forEach((el) => el.textContent = rel.tag_name);
+    })
+    .catch(() => {});
+})();
+</script>
+</body>
+</html>
