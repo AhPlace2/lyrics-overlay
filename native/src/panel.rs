@@ -453,7 +453,7 @@ impl Panel {
                     self.tab_from = None;
                 }
             }
-            stage_group = Group { shapes: pen.g.shapes.split_off(clip_shapes_from), texts: pen.g.texts.split_off(clip_texts_from) };
+            stage_group = Group { shapes: pen.g.shapes.split_off(clip_shapes_from), texts: pen.g.texts.split_off(clip_texts_from), ..Default::default() };
         }
         self.stage_last = stage_h;
 

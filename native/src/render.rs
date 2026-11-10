@@ -21,12 +21,25 @@ const TILE: usize = 64;
 struct Tex {
     w: usize,
     h: usize,
-    px: Vec<Color32>,
+    /// Premultiplied texels, packed r | g << 8 | b << 16 | a << 24.
+    px: Vec<u32>,
+    /// The coverage alone, for textures that are white with alpha (the font atlas): one byte to read, not four.
+    alpha: Option<Vec<u8>>,
     linear: bool,
     version: u64,
 }
 
+/// What the last frame cost.
+#[derive(Default, Clone, Copy)]
+pub struct Stats {
+    pub tris: usize,
+    pub dirty: usize,
+    pub raster: f64,
+    pub present: f64,
+}
+
 pub struct Soft {
+    pub stats: Stats,
     w: usize,
     h: usize,
     dc: HDC,
@@ -61,6 +74,7 @@ fn vert_hash(h: u64, v: &Vertex) -> u64 {
 impl Soft {
     pub fn new() -> Self {
         Soft {
+            stats: Stats::default(),
             w: 0,
             h: 0,
             dc: HDC::default(),
@@ -120,25 +134,39 @@ impl Soft {
     }
 
     fn set_textures(&mut self, delta: &TexturesDelta) {
+        let grey = |c: &Color32| c.r() == c.a() && c.g() == c.a() && c.b() == c.a();
         for (id, list) in delta.set.iter() {
             for d in list {
                 let ImageData::Color(img) = &d.image;
-                self.version += 1;
                 let linear = d.options.magnification == egui::TextureFilter::Linear;
                 match d.pos {
                     None => {
-                        self.tex.insert(*id, Tex { w: img.size[0], h: img.size[1], px: img.pixels.clone(), linear, version: self.version });
+                        // A new picture: everything drawn with this texture must be drawn again.
+                        self.version += 1;
+                        let alpha = img.pixels.iter().all(grey).then(|| img.pixels.iter().map(|c| c.a()).collect());
+                        self.tex.insert(*id, Tex { w: img.size[0], h: img.size[1], px: img.pixels.iter().map(|c| u32::from_le_bytes(c.to_array())).collect(), alpha, linear, version: self.version });
                     }
                     Some([x0, y0]) => {
+                        // New glyphs go into unused space, so what is on screen stays right: no version change.
                         if let Some(t) = self.tex.get_mut(id) {
+                            if !img.pixels.iter().all(grey) {
+                                t.alpha = None;
+                            }
+                            let w = img.size[0];
                             for y in 0..img.size[1] {
-                                let row = &img.pixels[y * img.size[0]..(y + 1) * img.size[0]];
+                                let row = &img.pixels[y * w..(y + 1) * w];
                                 let at = (y0 + y) * t.w + x0;
-                                if y0 + y < t.h && x0 + img.size[0] <= t.w {
-                                    t.px[at..at + img.size[0]].copy_from_slice(row);
+                                if y0 + y < t.h && x0 + w <= t.w {
+                                    for (o, c) in t.px[at..at + w].iter_mut().zip(row) {
+                                        *o = u32::from_le_bytes(c.to_array());
+                                    }
+                                    if let Some(a) = &mut t.alpha {
+                                        for (o, c) in a[at..at + w].iter_mut().zip(row) {
+                                            *o = c.a();
+                                        }
+                                    }
                                 }
                             }
-                            t.version = self.version;
                         }
                     }
                 }
@@ -205,6 +233,8 @@ impl Soft {
             }
         }
         let dirty: Vec<usize> = (0..self.hash.len()).filter(|&t| self.hash[t] != self.prev[t]).collect();
+        self.stats = Stats { tris: self.tris.iter().map(Vec::len).sum(), dirty: dirty.len(), ..Default::default() };
+        let t_raster = std::time::Instant::now();
         std::mem::swap(&mut self.prev, &mut self.hash);
         if dirty.is_empty() && self.shown {
             return;
@@ -239,7 +269,9 @@ impl Soft {
                 }
             }
         };
-        if dirty.len() > 4 {
+        // Threads only pay off for big redraws (Arrange mode, the panel opening); for a moving word or two they
+        // cost more CPU than they save.
+        if dirty.len() > 150 {
             std::thread::scope(|s| {
                 let n = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(1, 4);
                 let chunk = dirty.len().div_ceil(n);
@@ -255,6 +287,8 @@ impl Soft {
         for id in &delta.free {
             self.tex.remove(id);
         }
+        self.stats.raster = t_raster.elapsed().as_secs_f64() * 1000.0;
+        let t_present = std::time::Instant::now();
 
         // Hand the changed parts to Windows.
         let blend = BLENDFUNCTION { BlendOp: AC_SRC_OVER as u8, BlendFlags: 0, SourceConstantAlpha: 255, AlphaFormat: AC_SRC_ALPHA as u8 };
@@ -290,6 +324,7 @@ impl Soft {
             };
             update(Some(&rect));
         }
+        self.stats.present = t_present.elapsed().as_secs_f64() * 1000.0;
     }
 }
 
@@ -337,52 +372,133 @@ fn clusters(dirty: &[usize], tx: usize, _ty: usize) -> Vec<[usize; 4]> {
 }
 
 #[inline]
-fn premul_mul(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
-    [a[0] * b[0], a[1] * b[1], a[2] * b[2], a[3] * b[3]]
+fn div255(x: u32) -> u32 {
+    let x = x + 128;
+    (x + (x >> 8)) >> 8
 }
 
-fn sample(t: &Tex, u: f32, v: f32) -> [f32; 4] {
-    let c = |c: Color32| [c.r() as f32 / 255.0, c.g() as f32 / 255.0, c.b() as f32 / 255.0, c.a() as f32 / 255.0];
-    if !t.linear {
-        let x = ((u * t.w as f32) as isize).clamp(0, t.w as isize - 1) as usize;
-        let y = ((v * t.h as f32) as isize).clamp(0, t.h as isize - 1) as usize;
-        return c(t.px[y * t.w + x]);
+/// Premultiplied `s` (r, g, b, a in 0..=255) over the pixel.
+#[inline]
+fn blend(d: &mut u32, s: [u32; 4]) {
+    if s[3] >= 255 {
+        *d = 255 << 24 | s[0].min(255) << 16 | s[1].min(255) << 8 | s[2].min(255);
+        return;
     }
+    if (s[0] | s[1] | s[2] | s[3]) == 0 {
+        return;
+    }
+    let inv = 255 - s[3];
+    let dv = *d;
+    let ch = |shift: u32, sc: u32| (sc + div255(((dv >> shift) & 255) * inv)).min(255);
+    *d = ch(24, s[3]) << 24 | ch(16, s[0]) << 16 | ch(8, s[1]) << 8 | ch(0, s[2]);
+}
+
+#[inline]
+fn mul4(c: [u32; 4], t: [u32; 4]) -> [u32; 4] {
+    [div255(c[0] * t[0]), div255(c[1] * t[1]), div255(c[2] * t[2]), div255(c[3] * t[3])]
+}
+
+#[inline]
+fn scale4(c: [u32; 4], k: u32) -> [u32; 4] {
+    [div255(c[0] * k), div255(c[1] * k), div255(c[2] * k), div255(c[3] * k)]
+}
+
+/// Bilinear lookup in texel space: the four corners and their 8-bit weights.
+#[inline]
+fn taps(t: &Tex, u: f32, v: f32) -> ([usize; 4], u32, u32) {
     let fx = u * t.w as f32 - 0.5;
     let fy = v * t.h as f32 - 0.5;
-    let x0 = fx.floor();
-    let y0 = fy.floor();
-    let (ax, ay) = (fx - x0, fy - y0);
-    let get = |x: isize, y: isize| {
-        let x = x.clamp(0, t.w as isize - 1) as usize;
-        let y = y.clamp(0, t.h as isize - 1) as usize;
-        c(t.px[y * t.w + x])
-    };
+    let (x0, y0) = (fx.floor(), fy.floor());
+    let (ax, ay) = (((fx - x0) * 256.0) as u32, ((fy - y0) * 256.0) as u32);
     let (x0, y0) = (x0 as isize, y0 as isize);
-    let (p00, p10, p01, p11) = (get(x0, y0), get(x0 + 1, y0), get(x0, y0 + 1), get(x0 + 1, y0 + 1));
-    let mut out = [0.0; 4];
-    for i in 0..4 {
-        let top = p00[i] + (p10[i] - p00[i]) * ax;
-        let bot = p01[i] + (p11[i] - p01[i]) * ax;
-        out[i] = top + (bot - top) * ay;
+    let cx = |x: isize| x.clamp(0, t.w as isize - 1) as usize;
+    let cy = |y: isize| y.clamp(0, t.h as isize - 1) as usize;
+    let (xa, xb, ya, yb) = (cx(x0), cx(x0 + 1), cy(y0) * t.w, cy(y0 + 1) * t.w);
+    ([ya + xa, ya + xb, yb + xa, yb + xb], ax, ay)
+}
+
+#[inline]
+fn lerp2(p: [u32; 4], ax: u32, ay: u32) -> u32 {
+    let top = p[0] * (256 - ax) + p[1] * ax;
+    let bot = p[2] * (256 - ax) + p[3] * ax;
+    (top * (256 - ay) + bot * ay) >> 16
+}
+
+#[inline]
+fn nearest(t: &Tex, u: f32, v: f32) -> usize {
+    let x = ((u * t.w as f32) as isize).clamp(0, t.w as isize - 1) as usize;
+    let y = ((v * t.h as f32) as isize).clamp(0, t.h as isize - 1) as usize;
+    y * t.w + x
+}
+
+/// Coverage (0..=255) from a texture that is white with alpha, like the font atlas.
+#[inline]
+fn sample_a(t: &Tex, a: &[u8], u: f32, v: f32) -> u32 {
+    if !t.linear {
+        return a[nearest(t, u, v)] as u32;
     }
-    out
+    let (i, ax, ay) = taps(t, u, v);
+    lerp2([a[i[0]] as u32, a[i[1]] as u32, a[i[2]] as u32, a[i[3]] as u32], ax, ay)
+}
+
+/// Mixes two packed texels (8 bits per channel), `w` of 0..=256 towards `b`: two channels per multiply.
+#[inline]
+fn lerp_packed(a: u32, b: u32, w: u32) -> u32 {
+    let iw = 256 - w;
+    let rb = (((a & 0x00ff_00ff) * iw + (b & 0x00ff_00ff) * w) >> 8) & 0x00ff_00ff;
+    let ga = (((a >> 8) & 0x00ff_00ff) * iw + ((b >> 8) & 0x00ff_00ff) * w) & 0xff00_ff00;
+    rb | ga
+}
+
+#[inline]
+fn unpack(p: u32) -> [u32; 4] {
+    [p & 255, (p >> 8) & 255, (p >> 16) & 255, p >> 24]
+}
+
+/// Premultiplied colour, packed as r | g << 8 | b << 16 | a << 24 (0 when the texture is empty there).
+#[inline]
+fn sample_packed(t: &Tex, u: f32, v: f32) -> u32 {
+    if !t.linear {
+        return t.px[nearest(t, u, v)];
+    }
+    let (i, ax, ay) = taps(t, u, v);
+    let (p0, p1, p2, p3) = (t.px[i[0]], t.px[i[1]], t.px[i[2]], t.px[i[3]]);
+    if (p0 | p1 | p2 | p3) == 0 {
+        return 0;
+    }
+    lerp_packed(lerp_packed(p0, p1, ax), lerp_packed(p2, p3, ax), ay)
+}
+
+/// Premultiplied colour (0..=255 each) from any texture.
+#[inline]
+fn sample_rgba(t: &Tex, u: f32, v: f32) -> [u32; 4] {
+    unpack(sample_packed(t, u, v))
+}
+
+/// What the texture contributes to a triangle.
+enum Kind<'a> {
+    /// The same texel everywhere (egui's white texel for plain shapes).
+    Flat([u32; 4]),
+    Alpha(&'a Tex, &'a [u8]),
+    Rgba(&'a Tex),
 }
 
 /// One triangle into the bitmap within `clip` (pixels: x0, y0, x1, y1), blended over what is there (premultiplied).
+/// Each row is walked only across the pixels inside the triangle; colour and texture coordinates step along it.
 fn raster(fb: *mut u32, stride: usize, v: &[Vertex; 3], ppp: f32, clip: [i32; 4], tex: Option<&Tex>) {
     let p = |i: usize| (v[i].pos.x * ppp, v[i].pos.y * ppp);
-    let (mut a, mut b, c) = (0usize, 1usize, 2usize);
-    let edge = |p0: (f32, f32), p1: (f32, f32), q: (f32, f32)| (q.0 - p0.0) * (p1.1 - p0.1) - (q.1 - p0.1) * (p1.0 - p0.0);
-    let mut area = edge(p(a), p(b), p(c));
-    if area == 0.0 {
+    let (mut ia, mut ib) = (0usize, 1usize);
+    let ic = 2usize;
+    let cross = |p0: (f32, f32), p1: (f32, f32), q: (f32, f32)| (q.0 - p0.0) * (p1.1 - p0.1) - (q.1 - p0.1) * (p1.0 - p0.0);
+    let mut area = cross(p(ia), p(ib), p(ic));
+    if area == 0.0 || !area.is_finite() {
         return;
     }
     if area < 0.0 {
-        std::mem::swap(&mut a, &mut b);
+        std::mem::swap(&mut ia, &mut ib);
         area = -area;
     }
-    let (pa, pb, pc) = (p(a), p(b), p(c));
+    let (pa, pb, pc) = (p(ia), p(ib), p(ic));
     let (x0, y0, x1, y1) = (
         (pa.0.min(pb.0).min(pc.0).floor() as i32).max(clip[0]),
         (pa.1.min(pb.1).min(pc.1).floor() as i32).max(clip[1]),
@@ -392,78 +508,128 @@ fn raster(fb: *mut u32, stride: usize, v: &[Vertex; 3], ppp: f32, clip: [i32; 4]
     if x0 >= x1 || y0 >= y1 {
         return;
     }
-    // Top-left rule, so shared edges are drawn once.
-    let tl = |p0: (f32, f32), p1: (f32, f32)| {
-        let (dx, dy) = (p1.0 - p0.0, p1.1 - p0.1);
-        dy > 0.0 || (dy == 0.0 && dx < 0.0)
+    // Edge k is the one opposite vertex k: E(x, y) = A x + B y + C, positive inside, area × the weight of vertex k.
+    let edge = |p0: (f32, f32), p1: (f32, f32)| {
+        let a = p1.1 - p0.1;
+        let b = -(p1.0 - p0.0);
+        let c = -p0.0 * a - p0.1 * b;
+        // Top-left rule, so pixels on an edge shared by two triangles are drawn once.
+        let tl = a > 0.0 || (a == 0.0 && b > 0.0);
+        (a, b, c, tl)
     };
-    let edges = [(pb, pc, tl(pb, pc)), (pc, pa, tl(pc, pa)), (pa, pb, tl(pa, pb))];
-    let col = |i: usize| {
-        let c = v[i].color;
-        [c.r() as f32 / 255.0, c.g() as f32 / 255.0, c.b() as f32 / 255.0, c.a() as f32 / 255.0]
-    };
-    let (ca, cb, cc) = (col(a), col(b), col(c));
-    let same_colour = v[0].color == v[1].color && v[1].color == v[2].color;
-    let same_uv = v[0].uv == v[1].uv && v[1].uv == v[2].uv;
-    let flat_tex = match tex {
-        Some(t) if same_uv => Some(sample(t, v[0].uv.x, v[0].uv.y)),
-        None => Some([1.0; 4]),
-        _ => None,
-    };
-    let flat = match flat_tex {
-        Some(tx) if same_colour => Some(premul_mul(ca, tx)),
-        _ => None,
+    let edges = [edge(pb, pc), edge(pc, pa), edge(pa, pb)];
+    let inside = |x: f32, y: f32| {
+        edges.iter().all(|&(a, b, c, tl)| {
+            let e = a * x + b * y + c;
+            e > 0.0 || (e == 0.0 && tl)
+        })
     };
     let inv = 1.0 / area;
+    let vs = [v[ia], v[ib], v[ic]];
+    let col = |k: usize| {
+        let c = vs[k].color;
+        [c.r() as f32, c.g() as f32, c.b() as f32, c.a() as f32]
+    };
+    let cols = [col(0), col(1), col(2)];
+    // Any attribute f is linear over the triangle: f(x, y) = Σ (A_k x + B_k y + C_k) / area × f_k.
+    let grad = |f: [f32; 3]| {
+        let mut g = [0.0f32; 3];
+        for k in 0..3 {
+            g[0] += edges[k].0 * inv * f[k];
+            g[1] += edges[k].1 * inv * f[k];
+            g[2] += edges[k].2 * inv * f[k];
+        }
+        g
+    };
+    let flat_colour = vs[0].color == vs[1].color && vs[1].color == vs[2].color;
+    let flat_uv = vs[0].uv == vs[1].uv && vs[1].uv == vs[2].uv;
+    let cg: [[f32; 3]; 4] = std::array::from_fn(|i| grad([cols[0][i], cols[1][i], cols[2][i]]));
+    let ug = grad([vs[0].uv.x, vs[1].uv.x, vs[2].uv.x]);
+    let vg = grad([vs[0].uv.y, vs[1].uv.y, vs[2].uv.y]);
+    let c0 = [cols[0][0] as u32, cols[0][1] as u32, cols[0][2] as u32, cols[0][3] as u32];
+
+    let kind = match tex {
+        None => Kind::Flat([255; 4]),
+        Some(t) if flat_uv => Kind::Flat(sample_rgba(t, vs[0].uv.x, vs[0].uv.y)),
+        Some(t) => match &t.alpha {
+            Some(a) => Kind::Alpha(t, a),
+            None => Kind::Rgba(t),
+        },
+    };
+    let flat_src = match kind {
+        Kind::Flat(tx) if flat_colour => Some(mul4(c0, tx)),
+        _ => None,
+    };
+    if flat_src.is_some_and(|s| (s[0] | s[1] | s[2] | s[3]) == 0) {
+        return;
+    }
+
     for y in y0..y1 {
         let py = y as f32 + 0.5;
-        let row = unsafe { fb.add(y as usize * stride) };
-        for x in x0..x1 {
-            let q = (x as f32 + 0.5, py);
-            let mut w = [0.0f32; 3];
-            let mut inside = true;
-            for (k, (e0, e1, t)) in edges.iter().enumerate() {
-                let e = edge(*e0, *e1, q);
-                if e < 0.0 || (e == 0.0 && !t) {
-                    inside = false;
-                    break;
-                }
-                w[k] = e * inv;
+        // The span of pixel centres where all three edges are ≥ 0, widened by one and then trimmed exactly.
+        let (mut lo, mut hi) = (x0 as f32 + 0.5, x1 as f32 - 0.5);
+        let mut empty = false;
+        for &(a, b, c, _) in &edges {
+            let r = b * py + c;
+            if a > 0.0 {
+                lo = lo.max(-r / a);
+            } else if a < 0.0 {
+                hi = hi.min(-r / a);
+            } else if r < 0.0 {
+                empty = true;
             }
-            if !inside {
-                continue;
+        }
+        if empty || lo > hi + 1.0 {
+            continue;
+        }
+        let mut xs = ((lo - 0.5).ceil() as i32 - 1).max(x0);
+        let mut xe = ((hi - 0.5).floor() as i32 + 1).min(x1 - 1);
+        while xs <= xe && !inside(xs as f32 + 0.5, py) {
+            xs += 1;
+        }
+        while xe >= xs && !inside(xe as f32 + 0.5, py) {
+            xe -= 1;
+        }
+        if xs > xe {
+            continue;
+        }
+        let row = unsafe { std::slice::from_raw_parts_mut(fb.add(y as usize * stride + xs as usize), (xe - xs + 1) as usize) };
+        if let Some(s) = flat_src {
+            if s[3] >= 255 {
+                row.fill(255 << 24 | s[0].min(255) << 16 | s[1].min(255) << 8 | s[2].min(255));
+            } else {
+                row.iter_mut().for_each(|d| blend(d, s));
             }
-            let src = match flat {
-                Some(s) => s,
-                None => {
-                    let mut col = [0.0; 4];
-                    for i in 0..4 {
-                        col[i] = ca[i] * w[0] + cb[i] * w[1] + cc[i] * w[2];
+            continue;
+        }
+        let px = xs as f32 + 0.5;
+        let at = |g: [f32; 3]| g[0] * px + g[1] * py + g[2];
+        let (mut u, mut vv) = (at(ug), at(vg));
+        let mut c = [at(cg[0]), at(cg[1]), at(cg[2]), at(cg[3])];
+        let dc = [cg[0][0], cg[1][0], cg[2][0], cg[3][0]];
+        for d in row.iter_mut() {
+            let colour = if flat_colour { c0 } else { c.map(|x| x.max(0.0) as u32) };
+            let s = match kind {
+                Kind::Flat(tx) => mul4(colour, tx),
+                Kind::Alpha(t, a) => scale4(colour, sample_a(t, a, u, vv)),
+                Kind::Rgba(t) => {
+                    let p = sample_packed(t, u, vv);
+                    if p == 0 {
+                        [0; 4]
+                    } else if colour == [255; 4] {
+                        unpack(p)
+                    } else {
+                        mul4(colour, unpack(p))
                     }
-                    let tx = match flat_tex {
-                        Some(t) => t,
-                        None => {
-                            let (ua, ub, uc) = (v[a].uv, v[b].uv, v[c].uv);
-                            let u = ua.x * w[0] + ub.x * w[1] + uc.x * w[2];
-                            let vv = ua.y * w[0] + ub.y * w[1] + uc.y * w[2];
-                            sample(tex.unwrap(), u, vv)
-                        }
-                    };
-                    premul_mul(col, tx)
                 }
             };
-            if src[3] <= 0.0 && src[0] <= 0.0 && src[1] <= 0.0 && src[2] <= 0.0 {
-                continue;
-            }
-            unsafe {
-                let d = row.add(x as usize);
-                let dv = *d;
-                let inv_a = 1.0 - src[3].min(1.0);
-                let ch = |shift: u32, s: f32| -> u32 {
-                    let dc = ((dv >> shift) & 0xff) as f32;
-                    ((s * 255.0 + dc * inv_a).round().clamp(0.0, 255.0)) as u32
-                };
-                *d = ch(24, src[3]) << 24 | ch(16, src[0]) << 16 | ch(8, src[1]) << 8 | ch(0, src[2]);
+            blend(d, s);
+            u += ug[0];
+            vv += vg[0];
+            if !flat_colour {
+                for i in 0..4 {
+                    c[i] += dc[i];
+                }
             }
         }
     }

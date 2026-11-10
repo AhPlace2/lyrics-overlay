@@ -43,10 +43,20 @@ pub struct TextDraw {
     pub blur: f32,
 }
 
+/// A stack of text copies drawn as one cached picture (see draw::sprite), multiplied by `tint`.
+pub struct SpriteDraw {
+    pub galley: Arc<Galley>,
+    pub pos: Pos2,
+    pub xf: TSTransform,
+    pub layers: Vec<draw::Layer>,
+    pub tint: Color32,
+}
+
 #[derive(Default)]
 pub struct Group {
     pub shapes: Vec<Shape>,
     pub texts: Vec<TextDraw>,
+    pub sprites: Vec<SpriteDraw>,
 }
 impl Group {
     pub fn shape(&mut self, s: impl Into<Shape>) {
@@ -72,20 +82,30 @@ impl Group {
         for s in self.shapes {
             painter.add(s);
         }
-        if self.texts.is_empty() {
-            return;
+        if !self.texts.is_empty() {
+            let mut mesh = Mesh::default();
+            for t in &self.texts {
+                let xf = t.xf;
+                let f = move |p: Pos2| xf * p;
+                if t.blur > 0.0 {
+                    draw::soft_text(&mut mesh, &t.galley, t.pos, t.offset, t.blur, t.color, uv, &f);
+                } else {
+                    draw::galley_into(&mut mesh, &t.galley, t.pos + t.offset, t.color, uv, &f);
+                }
+            }
+            painter.add(Shape::mesh(mesh));
         }
-        let mut mesh = Mesh::default();
-        for t in &self.texts {
-            let xf = t.xf;
-            let f = move |p: Pos2| xf * p;
-            if t.blur > 0.0 {
-                draw::soft_text(&mut mesh, &t.galley, t.pos, t.offset, t.blur, t.color, uv, &f);
-            } else {
-                draw::galley_into(&mut mesh, &t.galley, t.pos + t.offset, t.color, uv, &f);
+        for s in &self.sprites {
+            if let Some(shape) = draw::sprite(painter.ctx(), &s.galley, s.pos, s.xf, &s.layers, s.tint) {
+                painter.add(shape);
             }
         }
-        painter.add(Shape::mesh(mesh));
+    }
+    /// A stack of copies of a word, drawn once and then reused while it only moves, scales and fades.
+    fn sprite(&mut self, galley: &Arc<Galley>, pos: Pos2, xf: TSTransform, layers: Vec<draw::Layer>, tint: Color32) {
+        if tint != Color32::TRANSPARENT {
+            self.sprites.push(SpriteDraw { galley: galley.clone(), pos, xf, layers, tint });
+        }
     }
 }
 
@@ -1777,7 +1797,7 @@ impl Overlay {
                         continue;
                     }
                     let c = self.word_colour(i, time, accent);
-                    paint_word(g, gl, pos, xf, c, op, &look, fs);
+                    paint_word(g, gl, pos, xf, c, op, &look, fs, !moving_colour);
                 }
             }
             if moving_colour && lo > 0.0 && !paused {
@@ -1790,39 +1810,55 @@ impl Overlay {
 
 /// One word in the chosen look: its shadows, then the word.
 #[allow(clippy::too_many_arguments)]
-fn paint_word(g: &mut Group, gl: &Arc<Galley>, pos: Pos2, xf: TSTransform, c: Color32, op: f32, look: &str, fs: f32) {
-    let deep = mix(c, 0.42, Color32::BLACK);
-    let a = |col: Color32| alpha(col, op);
-    match look {
-        "glow" => {
-            g.text_xf(gl, pos, rgba(0, 0, 0, 0.5 * op), xf, vec2(0.0, 0.03 * fs), 0.08 * fs);
-            g.text_xf(gl, pos, a(alpha(c, 0.75)), xf, Vec2::ZERO, 0.2 * fs);
-            g.text_xf(gl, pos, a(c), xf, Vec2::ZERO, 0.09 * fs);
-            g.text_xf(gl, pos, a(c), xf, Vec2::ZERO, (0.03 * fs).max(1.0));
-            g.text_xf(gl, pos, a(mix(c, 0.22, Color32::WHITE)), xf, Vec2::ZERO, 0.0);
-        }
+/// `steady`: the colour stays the same from frame to frame, so the whole stack can be one picture.
+fn paint_word(g: &mut Group, gl: &Arc<Galley>, pos: Pos2, xf: TSTransform, c: Color32, op: f32, look: &str, fs: f32, steady: bool) {
+    // Each look is up to three pictures: shadows in fixed colours; copies in the word colour, kept in grey and
+    // tinted when drawn (so changing colours reuse the picture); and for some looks a fixed wash over the face.
+    // mix(c, p, x) = c·p + x·(1 − p), so every word-coloured copy is a grey level times c.
+    let l = |color: Color32, x: f32, y: f32, blur: f32| draw::Layer { color, offset: vec2(x, y), blur };
+    let grey = |k: f32| Color32::from_gray((k * 255.0).round() as u8);
+    let white = Color32::WHITE;
+    let (fixed, tinted, top) = match look {
+        "glow" => (
+            vec![l(rgba(0, 0, 0, 0.5), 0.0, 0.03 * fs, 0.08 * fs)],
+            vec![l(rgba(255, 255, 255, 0.75), 0.0, 0.0, 0.2 * fs), l(white, 0.0, 0.0, 0.09 * fs), l(white, 0.0, 0.0, (0.03 * fs).max(1.0)), l(white, 0.0, 0.0, 0.0)],
+            // The face is mix(c, 0.22, white): the word colour with white at 78% over it.
+            vec![l(rgba(255, 255, 255, 0.78), 0.0, 0.0, 0.0)],
+        ),
         "outline" => {
-            g.text_xf(gl, pos, rgba(0, 0, 0, 0.45 * op), xf, vec2(0.0, 4.0), 14.0);
             let r = 0.045 * fs;
-            for k in 0..16 {
-                let ang = k as f32 / 16.0 * std::f32::consts::TAU;
-                g.text_xf(gl, pos, a(c), xf, vec2(ang.cos(), ang.sin()) * r, 0.0);
-            }
-            g.text_xf(gl, pos, a(mix(c, 0.22, Color32::from_rgb(0x10, 0x10, 0x14))), xf, Vec2::ZERO, 0.0);
+            let mut ring: Vec<draw::Layer> = (0..16)
+                .map(|k| {
+                    let ang = k as f32 / 16.0 * std::f32::consts::TAU;
+                    l(white, ang.cos() * r, ang.sin() * r, 0.0)
+                })
+                .collect();
+            ring.push(l(white, 0.0, 0.0, 0.0));
+            (vec![l(rgba(0, 0, 0, 0.45), 0.0, 4.0, 14.0)], ring, vec![l(rgba(0x10, 0x10, 0x14, 0.78), 0.0, 0.0, 0.0)])
         }
-        "plain" => {
-            g.text_xf(gl, pos, rgba(0, 0, 0, 0.9 * op), xf, Vec2::ZERO, 2.0);
-            g.text_xf(gl, pos, rgba(0, 0, 0, 0.75 * op), xf, vec2(0.0, 2.0), 10.0);
-            g.text_xf(gl, pos, a(c), xf, Vec2::ZERO, 0.0);
-        }
+        "plain" => (vec![l(rgba(0, 0, 0, 0.9), 0.0, 0.0, 2.0), l(rgba(0, 0, 0, 0.75), 0.0, 2.0, 10.0)], vec![l(white, 0.0, 0.0, 0.0)], vec![]),
         _ => {
-            g.text_xf(gl, pos, rgba(0, 0, 0, 0.5 * op), xf, vec2(10.0, 12.0), 18.0);
-            g.text_xf(gl, pos, a(mix(deep, 0.7, Color32::BLACK)), xf, vec2(6.0, 6.0), 0.0);
+            // Depth: deep = mix(c, 0.42, black), the back copy mix(deep, 0.7, black).
+            let mut t = vec![l(grey(0.42 * 0.7), 6.0, 6.0, 0.0)];
             for k in (1..=5).rev() {
-                g.text_xf(gl, pos, a(deep), xf, vec2(k as f32, k as f32), 0.0);
+                t.push(l(grey(0.42), k as f32, k as f32, 0.0));
             }
-            g.text_xf(gl, pos, a(c), xf, Vec2::ZERO, 0.0);
+            t.push(l(white, 0.0, 0.0, 0.0));
+            (vec![l(rgba(0, 0, 0, 0.5), 10.0, 12.0, 18.0)], t, vec![])
         }
+    };
+    let fade = Color32::WHITE.gamma_multiply(op);
+    if steady {
+        let mut all = fixed;
+        all.extend(tinted.into_iter().map(|t| draw::Layer { color: t.color * c, ..t }));
+        all.extend(top);
+        g.sprite(gl, pos, xf, all, fade);
+        return;
+    }
+    g.sprite(gl, pos, xf, fixed, fade);
+    g.sprite(gl, pos, xf, tinted, c.gamma_multiply(op));
+    if !top.is_empty() {
+        g.sprite(gl, pos, xf, top, fade);
     }
 }
 

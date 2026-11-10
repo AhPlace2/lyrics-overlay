@@ -1137,5 +1137,45 @@ pub fn start() {
             update_catching();
         })
         .unwrap();
-    crate::media::start();
+    if std::env::var("LO_DEMO").is_ok() {
+        std::thread::spawn(demo);
+    } else {
+        crate::media::start();
+    }
+}
+
+/// LO_DEMO=1: a made-up song with synced lyrics instead of the real player, for testing the animations.
+fn demo() {
+    let key = "demo|Demo Artist|Demo Song".to_string();
+    let words = [
+        "Every word should glide in smoothly now",
+        "Lights across the window, moving slow",
+        "Hold the line and let the chorus grow",
+        "Somewhere in the static there's a song",
+        "Singing it together all night long",
+        "One more time before the morning comes",
+    ];
+    let lines: Vec<Value> = (0..200).map(|i| json!({ "t": 1.0 + i as f64 * 2.4, "text": words[i % words.len()] })).collect();
+    let t0 = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as f64;
+    let start = Instant::now();
+    loop {
+        let pos = start.elapsed().as_secs_f64();
+        let state = json!({
+            "type": "state", "active": true, "key": key, "app": "Demo", "title": "Demo Song", "artist": "Demo Artist",
+            "album": "", "status": "Playing", "position": pos, "start": 0.0, "end": 480.0, "updated": t0 + pos * 1000.0,
+            "controls": { "toggle": true, "next": true, "prev": true, "seek": true },
+        });
+        {
+            let mut c = core();
+            let first = c.last_state.is_none();
+            c.last_state = Some(state);
+            c.state_version += 1;
+            if first {
+                c.looking_for = Some(key.clone());
+                c.publish_lyrics(&key, &json!({ "status": "found", "lines": lines, "provider": "Demo" }));
+            }
+        }
+        notify();
+        std::thread::sleep(Duration::from_secs(5));
+    }
 }

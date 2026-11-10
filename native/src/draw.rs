@@ -215,3 +215,219 @@ impl Pointer {
 pub fn tween(ctx: &Context, id: &str, target: f32, secs: f32) -> f32 {
     ctx.animate_value_with_time(egui::Id::new(id), target, secs)
 }
+
+/* ---------- Words as cached pictures ---------- */
+//
+// A word in the big lyrics is many copies of its text: soft shadows, depth copies, the face. Drawing all of them
+// every frame is most of what the overlay costs, so each stack of copies is drawn once into a picture, with a real
+// Gaussian blur for soft shadows, and the picture is then moved, scaled and faded like the word.
+
+/// One copy of the text in a stack: colour (with alpha), offset and CSS blur radius, in points.
+#[derive(Clone, Copy)]
+pub struct Layer {
+    pub color: Color32,
+    pub offset: Vec2,
+    pub blur: f32,
+}
+
+struct Entry {
+    tex: egui::TextureHandle,
+    rect: Rect,
+    used: u64,
+}
+
+#[derive(Default)]
+struct Sprites {
+    map: std::collections::HashMap<u64, Entry>,
+    frame: u64,
+    atlas: Option<egui::ColorImage>,
+}
+
+thread_local! {
+    static SPRITES: std::cell::RefCell<Sprites> = std::cell::RefCell::new(Sprites::default());
+}
+
+/// Forgets pictures nobody drew in the last two frames. Call once per frame.
+pub fn sprites_frame_end() {
+    SPRITES.with(|s| {
+        let mut s = s.borrow_mut();
+        s.frame += 1;
+        let f = s.frame;
+        s.map.retain(|_, e| e.used + 2 >= f);
+        s.atlas = None;
+    });
+}
+
+fn sprite_key(galley: &Galley, layers: &[Layer], ppp: f32) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    galley.text().hash(&mut h);
+    for s in &galley.job.sections {
+        s.format.font_id.hash(&mut h);
+    }
+    for v in [galley.rect.min.x, galley.rect.min.y, galley.rect.max.x, galley.rect.max.y, ppp] {
+        v.to_bits().hash(&mut h);
+    }
+    for l in layers {
+        l.color.to_array().hash(&mut h);
+        for v in [l.offset.x, l.offset.y, l.blur] {
+            v.to_bits().hash(&mut h);
+        }
+    }
+    h.finish()
+}
+
+/// The stack of copies as a mesh: one picture, placed at `pos`, passed through `xf`, multiplied by `tint`
+/// (premultiplied; white keeps the colours as they are).
+pub fn sprite(ctx: &Context, galley: &Galley, pos: Pos2, xf: egui::emath::TSTransform, layers: &[Layer], tint: Color32) -> Option<Shape> {
+    if layers.is_empty() || tint == Color32::TRANSPARENT || galley.is_empty() {
+        return None;
+    }
+    let ppp = ctx.pixels_per_point();
+    let key = sprite_key(galley, layers, ppp);
+    let (id, rect) = SPRITES.with(|s| {
+        let mut s = s.borrow_mut();
+        let frame = s.frame;
+        if let Some(e) = s.map.get_mut(&key) {
+            e.used = frame;
+            return Some((e.tex.id(), e.rect));
+        }
+        if s.atlas.is_none() {
+            s.atlas = Some(ctx.fonts(|f| f.image()));
+        }
+        let (img, rect) = build_sprite(s.atlas.as_ref().unwrap(), galley, layers, ppp)?;
+        let tex = ctx.load_texture("word", img, egui::TextureOptions::LINEAR);
+        let id = tex.id();
+        s.map.insert(key, Entry { tex, rect, used: frame });
+        Some((id, rect))
+    })?;
+    let mut mesh = Mesh::with_texture(id);
+    mesh.add_rect_with_uv(rect.translate(pos.to_vec2()), Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), tint);
+    for v in &mut mesh.vertices {
+        v.pos = xf * v.pos;
+    }
+    Some(Shape::mesh(mesh))
+}
+
+/// Draws the stack into a premultiplied picture. Returns it and where it sits relative to the galley origin.
+fn build_sprite(atlas: &egui::ColorImage, galley: &Galley, layers: &[Layer], ppp: f32) -> Option<(egui::ColorImage, Rect)> {
+    let pad = layers.iter().map(|l| l.offset.x.abs().max(l.offset.y.abs()) + l.blur * 1.5).fold(0.0f32, f32::max) + 2.0;
+    let rect = galley.rect.expand(pad);
+    let (w, h) = ((rect.width() * ppp).ceil() as usize, (rect.height() * ppp).ceil() as usize);
+    if w == 0 || h == 0 || w * h > 16_000_000 {
+        return None;
+    }
+    // The text coverage, copied glyph by glyph from the font atlas (glyphs are stored at screen resolution).
+    let mut mask = vec![0u8; w * h];
+    let (aw, ah) = (atlas.size[0] as isize, atlas.size[1] as isize);
+    for row in &galley.rows {
+        for q in row.visuals.mesh.vertices.chunks_exact(4) {
+            let (mut p0, mut p1, mut u0, mut u1) = (pos2(f32::MAX, f32::MAX), pos2(f32::MIN, f32::MIN), pos2(f32::MAX, f32::MAX), pos2(f32::MIN, f32::MIN));
+            for v in q {
+                let p = row.pos + v.pos.to_vec2();
+                p0 = p0.min(p);
+                p1 = p1.max(p);
+                u0 = u0.min(v.uv);
+                u1 = u1.max(v.uv);
+            }
+            let (gw, gh) = ((u1.x - u0.x).round() as isize, (u1.y - u0.y).round() as isize);
+            let (ux, uy) = (u0.x.round() as isize, u0.y.round() as isize);
+            let x0 = ((p0.x - rect.min.x) * ppp).round() as isize;
+            let y0 = ((p0.y - rect.min.y) * ppp).round() as isize;
+            // Glyphs are drawn at the size they are stored; stepping through the atlas covers any rounding.
+            let (sw, sh) = (((p1.x - p0.x) * ppp).round().max(1.0) as isize, ((p1.y - p0.y) * ppp).round().max(1.0) as isize);
+            for j in 0..sh {
+                let y = y0 + j;
+                let ty = uy + j * gh / sh;
+                if y < 0 || y >= h as isize || ty < 0 || ty >= ah {
+                    continue;
+                }
+                for i in 0..sw {
+                    let x = x0 + i;
+                    let tx = ux + i * gw / sw;
+                    if x < 0 || x >= w as isize || tx < 0 || tx >= aw {
+                        continue;
+                    }
+                    let a = atlas.pixels[(ty * aw + tx) as usize].a();
+                    let d = &mut mask[y as usize * w + x as usize];
+                    *d = (*d).max(a);
+                }
+            }
+        }
+    }
+    // Each layer over the ones before it, premultiplied, in gamma space like the rest of the drawing.
+    let mut out = vec![[0.0f32; 4]; w * h];
+    let mut blurred: Vec<(u32, Vec<f32>)> = Vec::new();
+    let plain: Vec<f32> = mask.iter().map(|&a| a as f32 / 255.0).collect();
+    for l in layers {
+        let src: &[f32] = if l.blur >= 0.5 {
+            let k = l.blur.to_bits();
+            if !blurred.iter().any(|(b, _)| *b == k) {
+                blurred.push((k, gaussian(&plain, w, h, l.blur * 0.5 * ppp)));
+            }
+            &blurred.iter().find(|(b, _)| *b == k).unwrap().1
+        } else {
+            &plain
+        };
+        let col = [l.color.r() as f32 / 255.0, l.color.g() as f32 / 255.0, l.color.b() as f32 / 255.0, l.color.a() as f32 / 255.0];
+        let (ox, oy) = ((l.offset.x * ppp).round() as isize, (l.offset.y * ppp).round() as isize);
+        for y in 0..h as isize {
+            let sy = y - oy;
+            if sy < 0 || sy >= h as isize {
+                continue;
+            }
+            for x in 0..w as isize {
+                let sx = x - ox;
+                if sx < 0 || sx >= w as isize {
+                    continue;
+                }
+                let cov = src[sy as usize * w + sx as usize];
+                if cov <= 0.0 {
+                    continue;
+                }
+                let o = &mut out[y as usize * w + x as usize];
+                let inv = 1.0 - col[3] * cov;
+                for i in 0..4 {
+                    o[i] = col[i] * cov + o[i] * inv;
+                }
+            }
+        }
+    }
+    let q = |v: f32| (v * 255.0).round().clamp(0.0, 255.0) as u8;
+    let px: Vec<Color32> = out.iter().map(|o| Color32::from_rgba_premultiplied(q(o[0]), q(o[1]), q(o[2]), q(o[3]))).collect();
+    let rect = Rect::from_min_size(rect.min, vec2(w as f32 / ppp, h as f32 / ppp));
+    Some((egui::ColorImage::new([w, h], px), rect))
+}
+
+/// A Gaussian blur, as three box blurs each way.
+fn gaussian(src: &[f32], w: usize, h: usize, sigma: f32) -> Vec<f32> {
+    let mut a = src.to_vec();
+    let r = (((4.0 * sigma * sigma + 1.0).sqrt() - 1.0) / 2.0).round().max(1.0) as usize;
+    let mut tmp = vec![0.0f32; w.max(h)];
+    for _ in 0..3 {
+        for y in 0..h {
+            box_line(&mut a[y * w..], 1, w, r, &mut tmp);
+        }
+        for x in 0..w {
+            box_line(&mut a[x..], w, h, r, &mut tmp);
+        }
+    }
+    a
+}
+
+/// A box blur of radius `r` along `n` values `step` apart; outside counts as empty.
+fn box_line(a: &mut [f32], step: usize, n: usize, r: usize, tmp: &mut [f32]) {
+    let k = 1.0 / (2 * r + 1) as f32;
+    let get = |a: &[f32], i: isize| if i < 0 || i >= n as isize { 0.0 } else { a[i as usize * step] };
+    let mut sum = 0.0;
+    for i in -(r as isize)..=(r as isize) {
+        sum += get(a, i);
+    }
+    for (i, t) in tmp.iter_mut().enumerate().take(n) {
+        *t = sum * k;
+        sum += get(a, i as isize + r as isize + 1) - get(a, i as isize - r as isize);
+    }
+    for (i, t) in tmp.iter().enumerate().take(n) {
+        a[i * step] = *t;
+    }
+}

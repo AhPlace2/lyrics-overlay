@@ -70,6 +70,21 @@ struct App {
     show_item: Option<CheckMenuItem>,
     menu_version: u64,
     _hotkeys: Option<GlobalHotKeyManager>,
+    prof: Option<Prof>,
+}
+
+/// LO_PROF=1: frame timings, written to %TEMP%\lo-prof.txt every two seconds.
+#[derive(Default)]
+struct Prof {
+    since: Option<Instant>,
+    frames: u32,
+    ui: f64,
+    tess: f64,
+    raster: f64,
+    present: f64,
+    worst: f64,
+    dirty: usize,
+    tris: usize,
 }
 
 impl App {
@@ -159,6 +174,7 @@ impl App {
             show_item: Some(show),
             menu_version: 0,
             _hotkeys: hotkeys,
+            prof: std::env::var("LO_PROF").is_ok().then(Prof::default),
         }
     }
 
@@ -192,14 +208,45 @@ impl App {
             self.overlay.pointer_left = false;
             raw.events.push(egui::Event::PointerGone);
         }
+        let t0 = Instant::now();
         let out = ctx.run_pass(raw, |ctx| self.ui(ctx));
+        let t_ui = t0.elapsed().as_secs_f64() * 1000.0;
         self.state.as_mut().unwrap().handle_platform_output(&window, out.platform_output);
         let ppp = out.pixels_per_point;
         crate::core::SCREEN.lock().unwrap().scale = ppp as f64;
+        let t1 = Instant::now();
         let prims = ctx.tessellate(out.shapes, ppp);
+        let t_tess = t1.elapsed().as_secs_f64() * 1000.0;
         let (x, y, w, h) = self.placed.unwrap_or_else(winutil::work_area);
         let floor = if core().editing { 1 } else { 0 };
         self.soft.paint(hwnd, x, y, w as usize, h as usize, ppp, floor, &prims, &out.textures_delta);
+        if let Some(p) = &mut self.prof {
+            let st = self.soft.stats;
+            let total = t0.elapsed().as_secs_f64() * 1000.0;
+            p.frames += 1;
+            p.ui += t_ui;
+            p.tess += t_tess;
+            p.raster += st.raster;
+            p.present += st.present;
+            p.worst = p.worst.max(total);
+            p.dirty += st.dirty;
+            p.tris = p.tris.max(st.tris);
+            let since = *p.since.get_or_insert_with(Instant::now);
+            if since.elapsed() > Duration::from_secs(2) {
+                let n = p.frames.max(1) as f64;
+                let line = format!(
+                    "{:.1} fps | ui {:.2} tess {:.2} raster {:.2} present {:.2} ms avg | worst {:.1} ms | dirty tiles {:.0} | tris {}
+",
+                    n / since.elapsed().as_secs_f64(), p.ui / n, p.tess / n, p.raster / n, p.present / n, p.worst, p.dirty as f64 / n, p.tris
+                );
+                let path = std::env::temp_dir().join("lo-prof.txt");
+                use std::io::Write;
+                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+                    let _ = f.write_all(line.as_bytes());
+                }
+                *p = Prof::default();
+            }
+        }
         if let Some(v) = out.viewport_output.get(&egui::ViewportId::ROOT) {
             if v.repaint_delay < Duration::from_secs(3600) {
                 self.wake_at(Instant::now() + v.repaint_delay);
@@ -244,7 +291,13 @@ impl App {
         let screen = ctx.content_rect();
         self.overlay.ui(ctx, screen, self.panel.is_open());
         self.panel.ui(ctx, screen);
-        if let Some(w) = self.overlay.next_wake().min(self.panel.next_wake()) {
+        // Option::min would pick None (no wish) over a wish, so combine by hand.
+        let wake = match (self.overlay.next_wake(), self.panel.next_wake()) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
+        crate::draw::sprites_frame_end();
+        if let Some(w) = wake {
             ctx.request_repaint_after(w);
         }
     }
