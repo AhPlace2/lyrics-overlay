@@ -24,6 +24,8 @@ const SNAP: f32 = 12.0;
 const INTRO: f32 = 2.6;
 const INTRO_DELAY: f64 = 0.25;
 const INTRO_PENDING: f64 = f64::NEG_INFINITY;
+/// How long before the startup animation ends the card and lyrics start coming in, so they overlap its last fade.
+const INTRO_HANDOFF: f32 = 0.15;
 const TEXT: Color32 = Color32::from_rgb(0xf4, 0xf4, 0xf1);
 fn dim() -> Color32 {
     rgba(0xf4, 0xf4, 0xf1, 0.55)
@@ -947,9 +949,12 @@ impl Overlay {
         let p = Pointer::read(ctx);
 
         /* --- What shows --- */
+        // Nothing else shows while the startup animation plays; the card and lyrics come in as it fades out.
+        let intro_hold = self.intro.is_some_and(|t0| time - t0 < (INTRO - INTRO_HANDOFF) as f64);
         let recent = self.playing || now - self.idle_since < 20000.0;
         let show_card = editing
-            || (self.sb("enabled") && self.sb("showCard") && self.track.is_some() && (recent || self.mouse_on_card || self.seeking.is_some()));
+            || (!intro_hold
+                && self.sb("enabled") && self.sb("showCard") && self.track.is_some() && (recent || self.mouse_on_card || self.seeking.is_some()));
         if !recent && self.track.is_some() {
             // nothing
         } else if self.track.is_some() && !self.playing {
@@ -962,7 +967,7 @@ impl Overlay {
         let ready = self.track.is_some()
             && self.lyrics_key.as_deref() == self.track.as_ref().map(|t| str_of(t, "key"))
             && self.lyrics_status == "found";
-        let want_big = self.sb("enabled") && self.sb("showBig") && ready;
+        let want_big = !intro_hold && self.sb("enabled") && self.sb("showBig") && ready;
         let fade_big = !want_big || (!self.playing && now - self.idle_since > 4000.0);
         if want_big && !self.playing && now - self.idle_since <= 4000.0 {
             wake = wake.min((self.idle_since + 4000.0 - now) / 1000.0 + 0.01);
@@ -1007,7 +1012,7 @@ impl Overlay {
         self.card_at = cl.card.min;
         self.card_w = cl.card.width();
         // Tell the app where the card is, so the mouse is only caught over a card that can appear.
-        let can = editing || (self.sb("enabled") && self.sb("showCard") && self.track.is_some());
+        let can = editing || (!intro_hold && self.sb("enabled") && self.sb("showCard") && self.track.is_some());
         let r = can.then(|| {
             let c = cl.card;
             [c.left() as f64, c.top() as f64, c.width() as f64, c.height() as f64]
