@@ -2,7 +2,7 @@
 ;
 ; Installs for the current user only, into %LOCALAPPDATA%\Programs\Lyrics Overlay, so no admin rights are needed and
 ; the app's self-updater can swap its own exe there. Settings (%APPDATA%\lyrics-overlay) are left alone, both on
-; install and on uninstall. An older Electron install (0.1.x) is removed first.
+; install and on uninstall.
 
 Unicode true
 !include MUI2.nsh
@@ -56,49 +56,8 @@ VIAddVersionKey "LegalCopyright" "AGPL-3.0-or-later"
   Sleep 300
 !macroend
 
-; The Electron build (0.1.x) registered itself under a GUID key named "Lyrics Overlay <version>". Run its own
-; uninstaller quietly, so the two don't run side by side. Its settings folder is the same one this build uses.
-Function RemoveElectron
-  StrCpy $R0 0
-  ${Do}
-    EnumRegKey $R1 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall" $R0
-    ${If} $R1 == ""
-      ${Break}
-    ${EndIf}
-    IntOp $R0 $R0 + 1
-    ${If} $R1 == "LyricsOverlay"
-      ${Continue}
-    ${EndIf}
-    ReadRegStr $R2 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$R1" "DisplayName"
-    StrCpy $R3 $R2 15
-    ReadRegStr $R4 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$R1" "QuietUninstallString"
-    ${If} $R3 == "Lyrics Overlay "
-    ${AndIf} $R4 != ""
-      DetailPrint "Removing the old version ($R2)"
-      nsExec::Exec 'taskkill /F /IM "Lyrics Overlay.exe"'
-      Pop $0
-      ExecWait '$R4'
-      ; Its uninstaller hands over to a copy of itself and returns at once. That copy deletes the install folder,
-      ; which may be this one, so wait until it is done (its registry key goes last), up to 30 seconds.
-      StrCpy $R5 0
-      ${Do}
-        ClearErrors
-        ReadRegStr $R2 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$R1" "DisplayName"
-        ${If} ${Errors}
-          ${Break}
-        ${EndIf}
-        Sleep 250
-        IntOp $R5 $R5 + 1
-      ${LoopUntil} $R5 >= 120
-      Sleep 500
-      ${Break}
-    ${EndIf}
-  ${Loop}
-FunctionEnd
-
 Section "Lyrics Overlay" SecApp
   SectionIn RO
-  Call RemoveElectron
   !insertmacro CloseApp
   SetOutPath "$INSTDIR"
   ; Leftovers from the self-updater.
