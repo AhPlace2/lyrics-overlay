@@ -124,9 +124,6 @@ Both update themselves the same way.
 > [!NOTE]
 > The app isn't code-signed, so Windows shows *"Windows protected your PC"*. Click **More info → Run anyway**.
 
-> [!TIP]
-> **Coming from 0.1.7 (Electron)?** The installer removes the old version for you. For the portable exe, first uninstall *Lyrics Overlay* from Windows' installed apps. Either way your settings, timing fixes and saved lyrics are kept.
-
 ### Build it yourself
 
 Needs [Rust](https://rustup.rs).
