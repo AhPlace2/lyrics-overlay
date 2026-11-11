@@ -30,3 +30,10 @@ $out = "$native\target\release\Lyrics-Overlay-Setup-$version.exe"
 & $makensis /V2 "/DVERSION=$version" "/DEXE=$exe" "/DOUTFILE=$out" "$here\installer.nsi"
 if ($LASTEXITCODE) { throw 'makensis failed' }
 Write-Host "Installer: $out"
+
+# SHA-256 of both downloads, for the release notes (GitHub also lists each file's own).
+$sums = "$native\target\release\SHA256SUMS.txt"
+$lines = foreach ($f in @($exe, $out)) { '{0}  {1}' -f (Get-FileHash $f -Algorithm SHA256).Hash.ToLower(), (Split-Path $f -Leaf) }
+Set-Content -Path $sums -Value $lines -Encoding ascii
+Write-Host "Checksums: $sums"
+$lines | ForEach-Object { Write-Host "  $_" }

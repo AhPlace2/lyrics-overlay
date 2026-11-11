@@ -20,7 +20,7 @@ pub const ALIGNS: &[(&str, &str)] = &[("left", "Left"), ("center", "Centre"), ("
 pub const COLOUR_MODES: &[(&str, &str)] = &[("accent", "Colour"), ("rainbow", "Rainbow"), ("fade", "Fade"), ("cover", "From the cover")];
 pub const FONTS: &[(&str, &str)] =
     &[("clean", "Clean"), ("serif", "Serif"), ("pixel", "Pixel"), ("bold", "Poster"), ("round", "Round"), ("hand", "Hand")];
-const TOGGLES: &[&str] = &["enabled", "showCard", "showCardLyrics", "showBig", "showCover", "showArtist", "showProgress", "showControls", "recognise", "checkUpdates", "useGpu", "startupAnimation"];
+const TOGGLES: &[&str] = &["enabled", "showCard", "showCardLyrics", "showBig", "showCover", "showArtist", "showProgress", "showControls", "recognise", "checkUpdates", "useGpu", "startupAnimation", "hideFromCapture"];
 
 fn defaults() -> Map<String, Value> {
     let v = json!({
@@ -42,6 +42,8 @@ fn defaults() -> Map<String, Value> {
         "bigSize": 1,
         "bigAlign": "center",
         "offsets": {},
+        // Milliseconds the sound reaches you after the player reports it (Bluetooth), for every song.
+        "audioDelay": 0,
         "picks": {},
         "card": { "x": 24, "y": 24 },
         "cardScale": 1,
@@ -57,6 +59,7 @@ fn defaults() -> Map<String, Value> {
         "checkUpdates": true,
         "useGpu": true,
         "startupAnimation": true,
+        "hideFromCapture": false,
     });
     v.as_object().unwrap().clone()
 }
@@ -68,6 +71,7 @@ fn range(key: &str) -> Option<(f64, f64, f64)> {
         "cardNext" => (0.0, 4.0, 1.0),
         "bigWidth" => (0.25, 0.98, 0.01),
         "bigSize" => (0.4, 2.5, 0.01),
+        "audioDelay" => (0.0, 1000.0, 10.0),
         _ => return None,
     })
 }
@@ -574,9 +578,31 @@ fn found_value(v: &Value, recognised: Option<&(String, String)>) -> Value {
     out
 }
 
+/// Spotify Free's ads come through the media controls as tracks of their own. Their titles vary (the brand,
+/// "Advertisement", "Spotify"), but the artist is "Spotify" or empty, which no real Spotify track has.
+/// The Web Player reports its ads the same way, but under the browser's name, where an empty artist is normal
+/// (many videos have none), so there only "Advertisement" with no artist, or the artist "Spotify", counts.
+pub fn is_ad(state: &Value) -> bool {
+    let artist = str_of(state, "artist").trim().to_lowercase();
+    let title = str_of(state, "title").trim().to_lowercase();
+    let no_artist = artist.is_empty() || artist == "spotify";
+    if str_of(state, "app").to_lowercase().contains("spotify") {
+        return no_artist || title == "advertisement" || title == "spotify";
+    }
+    artist == "spotify" || (no_artist && title == "advertisement")
+}
+
 /// Shows a song's lyrics: from memory, from disk, or looked up online.
 pub fn look_up(state: Value, force: bool) {
     let key = str_of(&state, "key").to_string();
+    // An ad has no lyrics; looking them up (or asking Shazam) would only find a wrong song.
+    if is_ad(&state) {
+        eprintln!("[ad] {} | {} | {}", str_of(&state, "app"), str_of(&state, "artist"), str_of(&state, "title"));
+        let mut c = core();
+        c.looking_for = Some(key.clone());
+        c.publish_lyrics(&key, &json!({ "status": "ad", "lines": [] }));
+        return;
+    }
     let publish = move |c: &mut Core, value: Value, state: &Value| {
         let key = str_of(state, "key").to_string();
         if let Some(r) = value.get("recognised") {
@@ -666,6 +692,12 @@ const RETRY_MS: u64 = 15000;
 pub fn recognise_song(state: Value, manual: bool) {
     let key = str_of(&state, "key").to_string();
     if key.is_empty() || str_of(&state, "title").is_empty() {
+        return;
+    }
+    if is_ad(&state) {
+        if manual {
+            core().toast("That's an ad");
+        }
         return;
     }
     let tries;
@@ -1059,6 +1091,23 @@ pub fn hotkey(name: &str) {
     }
 }
 
+/// The first time the app runs: how to hide the lyrics and where Quit is, after the startup animation.
+pub fn first_run_hint(shortcut_taken: bool) {
+    if core().flag("shortcutHintShown") {
+        return;
+    }
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(4));
+        let mut c = core();
+        c.update1("shortcutHintShown", json!(true));
+        c.toast(if shortcut_taken {
+            "Hide the lyrics or quit from the tray icon"
+        } else {
+            "Ctrl+Alt+L hides the lyrics. Quit from the tray icon."
+        });
+    });
+}
+
 pub fn second_instance() {
     core().toast("Already running. Use the tray icon.");
 }
@@ -1199,5 +1248,29 @@ fn demo() {
         }
         notify();
         std::thread::sleep(Duration::from_secs(5));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_ad;
+    use serde_json::json;
+
+    fn st(app: &str, artist: &str, title: &str) -> serde_json::Value {
+        json!({ "app": app, "artist": artist, "title": title })
+    }
+
+    #[test]
+    fn spotify_ads() {
+        assert!(is_ad(&st("Spotify.exe", "", "Some Brand")));
+        assert!(is_ad(&st("Spotify.exe", "Spotify", "Some Brand")));
+        assert!(is_ad(&st("SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify", "Brand", "Advertisement")));
+        assert!(!is_ad(&st("Spotify.exe", "Daft Punk", "One More Time")));
+        // The Web Player in a browser.
+        assert!(is_ad(&st("chrome", "", "Advertisement")));
+        assert!(is_ad(&st("msedge", "Spotify", "Some Brand")));
+        // In a browser, an empty artist alone is not an ad (a YouTube video), nor is a real song of that name.
+        assert!(!is_ad(&st("chrome", "", "Daft Punk - One More Time (Official Video)")));
+        assert!(!is_ad(&st("chrome", "Some Band", "Advertisement")));
     }
 }

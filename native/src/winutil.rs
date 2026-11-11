@@ -8,7 +8,8 @@ use windows::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS
 use windows::Win32::System::Threading::{CreateEventW, CreateMutexW, OpenEventW, SetEvent, WaitForSingleObject, EVENT_MODIFY_STATE, INFINITE};
 use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetCursorPos, GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, SystemParametersInfoW, GWL_EXSTYLE, HWND_TOPMOST, SPI_GETWORKAREA,
+    GetCursorPos, GetWindowLongPtrW, SetWindowDisplayAffinity, SetWindowLongPtrW, SetWindowPos, SystemParametersInfoW, GWL_EXSTYLE, HWND_TOPMOST, SPI_GETWORKAREA,
+    WDA_EXCLUDEFROMCAPTURE, WDA_NONE,
     SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, STYLESTRUCT, WM_STYLECHANGING, WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
     WS_EX_TRANSPARENT,
 };
@@ -112,6 +113,20 @@ pub fn set_passthrough(on: bool) {
     let h = OVERLAY.load(Ordering::Relaxed);
     if h != 0 {
         restyle(HWND(h as *mut _));
+    }
+}
+
+/// Keeps the overlay out of screenshots, recordings and screen sharing (Zoom, Teams, Discord, OBS) while it stays on
+/// your own screen. Needs Windows 10 2004 or later; older versions just keep showing it.
+pub fn set_capture_hidden(on: bool) {
+    let h = OVERLAY.load(Ordering::Relaxed);
+    if h == 0 {
+        return;
+    }
+    unsafe {
+        if let Err(e) = SetWindowDisplayAffinity(HWND(h as *mut _), if on { WDA_EXCLUDEFROMCAPTURE } else { WDA_NONE }) {
+            eprintln!("Could not change screen capture: {e}");
+        }
     }
 }
 

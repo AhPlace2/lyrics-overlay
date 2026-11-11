@@ -644,7 +644,7 @@ impl Panel {
             0 => self.pane_show(pen, state, acts),
             1 => self.pane_layout(pen, state, acts, time),
             2 => self.pane_look(pen, state, acts),
-            _ => self.pane_song(pen, state, acts),
+            _ => self.pane_song(pen, state, acts, time),
         }
     }
 
@@ -652,7 +652,7 @@ impl Panel {
         let s = &state["settings"];
         update_banner(pen, &state["update"], acts);
         let card_on = s["showCard"].as_bool().unwrap_or(false);
-        let rows: [(&str, &str, bool, Option<&str>); 12] = [
+        let rows: [(&str, &str, bool, Option<&str>); 13] = [
             ("enabled", "Lyrics", false, Some("Ctrl+Alt+L")),
             ("showCard", "Now playing card", false, None),
             ("showCardLyrics", "Lyrics on the card", true, None),
@@ -661,6 +661,7 @@ impl Panel {
             ("showProgress", "Progress bar and time", true, None),
             ("showControls", "Play controls", true, None),
             ("showBig", "Big floating lyrics", false, None),
+            ("hideFromCapture", "Hide from screen sharing", false, None),
             ("recognise", "Recognise songs without lyrics", false, None),
             ("checkUpdates", "Check for updates", false, None),
             ("useGpu", "Use GPU", false, None),
@@ -712,7 +713,7 @@ impl Panel {
                 acts.push(Act::Core("toggle", json!(key)));
             }
         }
-        hint(pen, "No lyrics? Asks Shazam. Unofficial, may break. Updates: asks GitHub once a day. Use GPU: less CPU, more memory.");
+        hint(pen, "Hide from screen sharing: you still see the lyrics, but screenshots, recordings and calls don't. No lyrics? Asks Shazam. Unofficial, may break. Updates: asks GitHub once a day. Use GPU: less CPU, more memory.");
         pen.y += 4.0;
         label(pen, "Hide the card while holding", None);
         chips(pen, "peekKey", &state["options"]["peekKeys"], str_of(s, "peekKey"), acts);
@@ -771,7 +772,13 @@ impl Panel {
             Some((k, v)) if k == key => v as f32,
             _ => saved,
         };
-        let shown = if pct { format!("{}%", (live * 100.0).round()) } else { format!("{}", live) };
+        let shown = if pct {
+            format!("{}%", (live * 100.0).round())
+        } else if key == "audioDelay" {
+            format!("{} ms", live.round())
+        } else {
+            format!("{}", live)
+        };
         pen.y += 4.0;
         label(pen, name, Some(&shown));
         pen.y -= 1.0;
@@ -1017,13 +1024,14 @@ impl Panel {
         }
     }
 
-    fn pane_song(&mut self, pen: &mut Pen, state: &Value, acts: &mut Vec<Act>) {
+    fn pane_song(&mut self, pen: &mut Pen, state: &Value, acts: &mut Vec<Act>, time: f64) {
         let song = &state["song"];
         if song.is_null() {
             pen.y += 8.0;
             let g = text(pen.ctx, "Play a song to adjust its timing and lyrics.", fonts::inter(400, 13.0), dim(), Txt { wrap: pen.w, italic: true, ..Default::default() });
             pen.text(&g, pos2(pen.x, pen.y), dim());
             pen.y += g.size().y + 4.0;
+            self.audio_delay(pen, state, time);
             return;
         }
         let title = str_of(song, "title");
@@ -1051,6 +1059,8 @@ impl Panel {
             format!("from {p}")
         } else if str_of(song, "status") == "loading" {
             "looking…".into()
+        } else if str_of(song, "status") == "ad" {
+            "none during ads".into()
         } else {
             "none found".into()
         };
@@ -1067,6 +1077,15 @@ impl Panel {
             let a = r.get("artist").and_then(Value::as_str).unwrap_or("");
             hint(pen, &format!("Recognised as {}", if a.is_empty() { t.to_string() } else { format!("{a} – {t}") }));
         }
+        pen.y += 6.0;
+        self.audio_delay(pen, state, time);
+    }
+
+    /// The timing fix every song shares, under the song's own.
+    fn audio_delay(&mut self, pen: &mut Pen, state: &Value, time: f64) {
+        group(pen, "All songs", false);
+        self.slider(pen, "audioDelay", "Audio delay", &state["settings"], 0.0, 1000.0, 10.0, false, time);
+        hint(pen, "Bluetooth headphones play sound late, often 150 to 250 ms. Set it once and every song's lyrics wait for it.");
         pen.y += 6.0;
     }
 }

@@ -124,6 +124,14 @@ Both update themselves the same way.
 > [!NOTE]
 > The app isn't code-signed, so Windows shows *"Windows protected your PC"*. Click **More info → Run anyway**.
 
+To check a download, compare its SHA-256 with the one listed next to the file on the release page (and in the release notes):
+
+```powershell
+Get-FileHash .\lyrics-overlay.exe -Algorithm SHA256
+```
+
+The built-in updater does the same check and won't install a file that doesn't match. You can also build the exe yourself from this source (below).
+
 ### Build it yourself
 
 Needs [Rust](https://rustup.rs).
@@ -155,9 +163,15 @@ Click the ⚙️ gear on the card for settings, or right-click the tray icon.
 Settings live in `%APPDATA%\lyrics-overlay\settings.json`, saved lyrics in `%APPDATA%\lyrics-overlay\lyrics-cache`. **Reset all** in the settings puts everything back to the defaults.
 
 Under **Settings → Show**:
+- **Hide from screen sharing** (off): you still see the lyrics, but screenshots, recordings, OBS and calls (Zoom, Teams, Discord) don't. Leave it off if you want the lyrics on stream. Needs Windows 10 version 2004 or later.
 - **Use GPU** (on): draw with DirectX 12. Off draws on the CPU, which uses less memory but more CPU.
 - **Check for updates** (on): look for a new version on GitHub once a day.
 - **Startup animation** (on): show the app's badge for a moment when it starts, before the card and lyrics.
+
+Under **Settings → Song**:
+- **Audio delay** (0 ms): makes every song's lyrics wait this long. Bluetooth headphones play sound late, often by 150 to 250 ms; set it once instead of fixing each song. A song's own timing fix (Earlier, Later, Sync to now) adds on top.
+
+Spotify Free's ads don't get lyrics: the overlay stays empty until the music is back.
 
 ## 🔧 How it works
 

@@ -338,11 +338,20 @@ impl Overlay {
     fn song_key(&self) -> String {
         self.track.as_ref().map(core::song_key).unwrap_or_default()
     }
-    fn song_lead(&self) -> f64 {
+    /// The song's own timing fix only (what "Sync to now" and the Song tab change).
+    fn own_lead(&self) -> f64 {
         match &self.track {
             Some(t) => self.sv("offsets").get(core::song_key(t)).and_then(Value::as_f64).unwrap_or(0.0),
             None => 0.0,
         }
+    }
+    /// How far ahead of the player's position the lyrics run: the song's own fix, minus the audio delay that every
+    /// song shares (sound from Bluetooth headphones arrives late, so the lyrics must wait for it).
+    fn song_lead(&self) -> f64 {
+        self.own_lead() - self.audio_delay()
+    }
+    fn audio_delay(&self) -> f64 {
+        self.sf("audioDelay", 0.0) / 1000.0
     }
     fn length(&self) -> f64 {
         self.track.as_ref().map(|t| t["end"].as_f64().unwrap_or(0.0) - t["start"].as_f64().unwrap_or(0.0)).unwrap_or(0.0)
@@ -471,7 +480,9 @@ impl Overlay {
             _ => self.next_text_index(idx + 1).map(|i| self.lines[i].clone()),
         };
         let Some(target) = target else { return self.toast("No lyric line to line up") };
-        core::send("set-offset", json!({ "key": self.song_key(), "lead": num(((target.t - t) * 100.0).round() / 100.0) }));
+        // The audio delay already applies to every song, so only the rest is this song's own fix.
+        let own = target.t - t + self.audio_delay();
+        core::send("set-offset", json!({ "key": self.song_key(), "lead": num((own * 100.0).round() / 100.0) }));
     }
 
     fn set_over_ui(&mut self, mut on: Hold) {
@@ -658,8 +669,9 @@ impl Overlay {
             "loading" => note(&mut rows, &mut y, "Looking for lyrics…"),
             "none" => note(&mut rows, &mut y, "No synced lyrics found for this song"),
             "unsynced" => note(&mut rows, &mut y, "Only unsynced lyrics exist for this song"),
-            "error" => note(&mut rows, &mut y, "Couldn't reach the lyrics service. Use “Search lyrics again” in the tray menu."),
+            "error" => note(&mut rows, &mut y, "Couldn't reach the lyrics service. Press “Search again” under Settings → Song."),
             "found" => {}
+            // "ad" and anything else: no lyrics and no note, so nothing is left over from the song before.
             _ => return (rows, 0.0, false),
         }
         if status != "found" {
@@ -1358,10 +1370,12 @@ impl Overlay {
 
         // Toast.
         if let Some((msg, t0)) = self.toast.clone() {
-            let on = time - t0 < 2.4;
+            // Longer messages stay longer, to be read.
+            let shown_for = if msg.chars().count() > 40 { 8.0 } else { 2.4 };
+            let on = time - t0 < shown_for;
             let k = tween(ctx, "toast", if on { 1.0 } else { 0.0 }, 0.25);
             if on {
-                wake = wake.min(t0 + 2.4 - time + 0.01);
+                wake = wake.min(t0 + shown_for - time + 0.01);
             } else if k <= 0.0 {
                 self.toast = None;
             }

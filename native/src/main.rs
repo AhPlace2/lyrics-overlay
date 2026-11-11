@@ -84,6 +84,8 @@ struct App {
     _tray: Option<TrayIcon>,
     show_item: Option<CheckMenuItem>,
     menu_version: u64,
+    /// The "Hide from screen sharing" setting last given to the window.
+    capture_hidden: Option<bool>,
     _hotkeys: Option<GlobalHotKeyManager>,
     prof: Option<Prof>,
 }
@@ -173,6 +175,7 @@ impl App {
         if !failed.is_empty() {
             core().events.push(Ev::Toast(format!("Shortcuts used by another app: {}", failed.join(", "))));
         }
+        crate::core::first_run_hint(failed.iter().any(|f| f == "Ctrl+Alt+L"));
 
         App {
             ctx,
@@ -195,6 +198,7 @@ impl App {
             _tray: tray,
             show_item: Some(show),
             menu_version: 0,
+            capture_hidden: None,
             _hotkeys: hotkeys,
             prof: std::env::var("LO_PROF").is_ok().then(Prof::default),
         }
@@ -284,6 +288,7 @@ impl App {
             if let RawWindowHandle::Win32(w) = h.as_raw() {
                 let hwnd = w.hwnd.get();
                 winutil::make_overlay_window(hwnd);
+                winutil::set_capture_hidden(core().flag("hideFromCapture"));
                 self.hwnd = Some(hwnd);
                 self.panel.hwnd = Some(hwnd);
             }
@@ -450,6 +455,11 @@ impl App {
             self.menu_version = version;
             if let Some(item) = &self.show_item {
                 item.set_checked(core().flag("enabled"));
+            }
+            let hide = core().flag("hideFromCapture");
+            if self.capture_hidden != Some(hide) {
+                self.capture_hidden = Some(hide);
+                winutil::set_capture_hidden(hide);
             }
         }
 
