@@ -17,7 +17,9 @@ use std::time::Duration;
 
 const WIDTH: f32 = 340.0;
 const TEXT: Color32 = Color32::from_rgb(0xf4, 0xf4, 0xf1);
-const TABS: [(&str, &str); 4] = [("show", "Show"), ("layout", "Layout"), ("look", "Look"), ("song", "This song")];
+const TABS: [(&str, &str); 5] = [("show", "Show"), ("layout", "Layout"), ("look", "Look"), ("song", "Song"), ("app", "App")];
+/// How long the pointer rests on something before its tooltip shows, in seconds.
+const TIP_DELAY: f64 = 0.45;
 fn dim() -> Color32 {
     rgba(0xf4, 0xf4, 0xf1, 0.55)
 }
@@ -57,9 +59,22 @@ struct Pen<'a> {
     press_now: Option<String>,
     accent: Color32,
     cursor: Option<CursorIcon>,
+    /// The tooltip of what the pointer is on, and that thing's rectangle.
+    tip: Option<(String, Rect)>,
 }
 
 impl Pen<'_> {
+    /// Gives `r` a tooltip, shown when the pointer rests on it.
+    fn tip(&mut self, r: Rect, s: &str) {
+        if !s.is_empty() && self.hover(r) {
+            self.tip = Some((s.to_string(), r));
+        }
+    }
+    /// Gives a tooltip to everything drawn since `y0`, across the panel's width.
+    fn tip_since(&mut self, y0: f32, s: &str) {
+        let r = Rect::from_min_max(pos2(self.x, y0), pos2(self.x + self.w, self.y));
+        self.tip(r, s);
+    }
     fn shape(&mut self, s: impl Into<Shape>) {
         let mut s = s.into();
         s.transform(self.xf);
@@ -133,6 +148,8 @@ pub struct Panel {
     hex_rect: Option<Rect>,
     /// The now playing card's options are unfolded in the Show tab.
     card_more: bool,
+    /// The tooltip the pointer rests on, and since when.
+    tip_at: Option<(String, f64)>,
 }
 
 impl Panel {
@@ -167,6 +184,7 @@ impl Panel {
             stage_last: 300.0,
             hex_rect: None,
             card_more: false,
+            tip_at: None,
         }
     }
 
@@ -382,6 +400,7 @@ impl Panel {
             press_now: None,
             accent,
             cursor: None,
+            tip: None,
         };
         let mut acts: Vec<Act> = Vec::new();
 
@@ -407,7 +426,7 @@ impl Panel {
         // Tabs: a segmented control with a highlight that slides to the chosen tab.
         let tabs_r = Rect::from_min_size(pos2(root.left() + 12.0, root.top() + 42.0), vec2(WIDTH - 24.0, 33.0));
         pen.shape(Shape::rect_filled(tabs_r, 9.0, rgba(255, 255, 255, 0.06 * op)));
-        let tw = (tabs_r.width() - 6.0) / 4.0;
+        let tw = (tabs_r.width() - 6.0) / TABS.len() as f32;
         let ind = tween(ctx, "p-tab-ind", self.tab as f32, 0.28);
         let ind_r = Rect::from_min_size(pos2(tabs_r.left() + 3.0 + ind * tw, tabs_r.top() + 3.0), vec2(tw, tabs_r.height() - 6.0));
         pen.shape(Shape::Rect(Shadow { offset: [0, 1], blur: 4, spread: 0, color: rgba(0, 0, 0, 0.3 * op) }.as_shape(ind_r, 7.0)));
@@ -418,6 +437,10 @@ impl Panel {
             let ht = pen.hover_t(&format!("tab{i}"), h || i == self.tab);
             let g = line(ctx, label, fonts::inter(600, 12.0), TEXT);
             pen.text(&g, r.center() - g.size() / 2.0, mix(TEXT, ht, dim()));
+            // A dot on App while a new version waits there.
+            if TABS[i].0 == "app" && !state["update"].is_null() {
+                pen.shape(Shape::circle_filled(pos2(r.center().x + g.size().x / 2.0 + 4.0, r.center().y - 4.0), 2.5, pen.a(accent)));
+            }
             if clicked {
                 acts.push(Act::Tab(i));
             }
@@ -483,6 +506,7 @@ impl Panel {
         if button(&mut pen, "f-move", "Arrange", r, false, true, false) {
             acts.push(Act::Core("move", Value::Null));
         }
+        pen.tip(r, "Drag and resize the card and the big lyrics on screen. Ctrl+Alt+M");
         let confirm = self.reset_until.is_some();
         let label = if confirm { "Click again to reset" } else { "Reset all" };
         let rs = button_size(ctx, label);
@@ -576,6 +600,28 @@ impl Panel {
         let stage_clip = xf * Rect::from_min_max(pos2(root.left(), stage_top), pos2(root.right(), stage_top + stage_h));
         stage_group.paint(&painter.with_clip_rect(stage_clip.intersect(screen)), uv);
 
+        // Tooltip: what the thing under the pointer does, once the pointer rests on it.
+        match pen.tip.take() {
+            Some((s, r)) if self.closing.is_none() && !ptr.down => {
+                let since = match &self.tip_at {
+                    Some((t, t0)) if *t == s => *t0,
+                    _ => {
+                        self.tip_at = Some((s.clone(), time));
+                        time
+                    }
+                };
+                let k = ((time - since - TIP_DELAY) / 0.12).clamp(0.0, 1.0) as f32;
+                if k < 1.0 {
+                    let due = (since + TIP_DELAY - time).max(1.0 / 60.0);
+                    self.wake = Some(self.wake.unwrap_or(f64::INFINITY).min(due));
+                }
+                if k > 0.0 {
+                    paint_tip(ctx, screen, xf * r, &s, k);
+                }
+            }
+            _ => self.tip_at = None,
+        }
+
         for a in acts {
             match a {
                 Act::Core(name, v) => {
@@ -599,7 +645,7 @@ impl Panel {
             }
         }
         if animating_open || self.tab_from.is_some() || self.dragging {
-            self.wake = Some(1.0 / 60.0);
+            self.wake = Some(self.wake.unwrap_or(f64::INFINITY).min(1.0 / 60.0));
         }
     }
 
@@ -644,32 +690,34 @@ impl Panel {
             0 => self.pane_show(pen, state, acts),
             1 => self.pane_layout(pen, state, acts, time),
             2 => self.pane_look(pen, state, acts),
-            _ => self.pane_song(pen, state, acts, time),
+            3 => self.pane_song(pen, state, acts, time),
+            _ => self.pane_app(pen, state, acts),
         }
     }
 
     fn pane_show(&mut self, pen: &mut Pen, state: &Value, acts: &mut Vec<Act>) {
         let s = &state["settings"];
-        update_banner(pen, &state["update"], acts);
         let card_on = s["showCard"].as_bool().unwrap_or(false);
-        let rows: [(&str, &str, bool, Option<&str>); 13] = [
-            ("enabled", "Lyrics", false, Some("Ctrl+Alt+L")),
-            ("showCard", "Now playing card", false, None),
-            ("showCardLyrics", "Lyrics on the card", true, None),
-            ("showCover", "Cover art", true, None),
-            ("showArtist", "Artist", true, None),
-            ("showProgress", "Progress bar and time", true, None),
-            ("showControls", "Play controls", true, None),
-            ("showBig", "Big floating lyrics", false, None),
-            ("hideFromCapture", "Hide from screen sharing", false, None),
-            ("recognise", "Recognise songs without lyrics", false, None),
-            ("checkUpdates", "Check for updates", false, None),
-            ("useGpu", "Use GPU", false, None),
-            ("startupAnimation", "Startup animation", false, None),
+        let rows: [(&str, &str, bool, Option<&str>, &str); 9] = [
+            ("enabled", "Lyrics", false, Some("Ctrl+Alt+L"), "Shows or hides all lyrics. Ctrl+Alt+L does the same from anywhere."),
+            ("showCard", "Now playing card", false, None, "The small card with the cover, title and play controls. The arrow opens its options."),
+            ("showCardLyrics", "Lyrics on the card", true, None, ""),
+            ("showCover", "Cover art", true, None, ""),
+            ("showArtist", "Artist", true, None, ""),
+            ("showProgress", "Progress bar and time", true, None, ""),
+            ("showControls", "Play controls", true, None, ""),
+            ("showBig", "Big floating lyrics", false, None, "The large lyrics over your screen, word by word."),
+            (
+                "recognise",
+                "Recognise songs without lyrics",
+                false,
+                None,
+                "When no lyrics are found, listens to about 11 s of what's playing and asks Shazam for the song's real name. Uses Shazam's unofficial service, which may stop working.",
+            ),
         ];
         // The card's own options fold away under its row; the arrow opens and closes them.
         let k = tween(pen.ctx, "card-more", if self.card_more { 1.0 } else { 0.0 }, 0.2);
-        for (key, label, sub, kbd) in rows {
+        for (key, label, sub, kbd, tip) in rows {
             let on = s[key].as_bool().unwrap_or(false);
             let enabled = !sub || card_on;
             if sub {
@@ -689,6 +737,7 @@ impl Panel {
             }
             let y0 = pen.y;
             let clicked = toggle_row(pen, key, label, sub, kbd, on, enabled);
+            pen.tip_since(y0, tip);
             if key == "showCard" {
                 // The arrow sits just after the label; the label and the arrow both open and close the options.
                 let lw = line(pen.ctx, label, fonts::inter(400, 13.0), TEXT).size().x;
@@ -713,27 +762,58 @@ impl Panel {
                 acts.push(Act::Core("toggle", json!(key)));
             }
         }
-        hint(pen, "Hide from screen sharing: you still see the lyrics, but screenshots, recordings and calls don't. No lyrics? Asks Shazam. Unofficial, may break. Updates: asks GitHub once a day. Use GPU: less CPU, more memory.");
-        pen.y += 4.0;
+        pen.y += 8.0;
+        let y0 = pen.y;
         label(pen, "Hide the card while holding", None);
+        pen.tip_since(y0, "While you hold this key, the card hides so you can click what's under it. Right-clicking the card does the same.");
         chips(pen, "peekKey", &state["options"]["peekKeys"], str_of(s, "peekKey"), acts);
-        hint(pen, "Or just right-click the card.");
         pen.y += 6.0;
+    }
+
+    /// Settings about the app itself, not the lyrics.
+    fn pane_app(&mut self, pen: &mut Pen, state: &Value, acts: &mut Vec<Act>) {
+        let s = &state["settings"];
+        update_banner(pen, &state["update"], acts);
+        let rows: [(&str, &str, &str); 4] = [
+            (
+                "hideFromCapture",
+                "Hide from screen sharing",
+                "You still see the lyrics, but screenshots, recordings, OBS and calls (Zoom, Teams, Discord) don't. Needs Windows 10 version 2004 or later.",
+            ),
+            ("useGpu", "Use GPU", "Draws with DirectX 12: about 5× less CPU while lyrics move, but more memory. Off draws on the CPU."),
+            ("checkUpdates", "Check for updates", "Asks GitHub once a day whether a new version is out. Nothing installs until you press Update."),
+            ("startupAnimation", "Startup animation", "Shows the app's badge for a moment when it starts."),
+        ];
+        for (key, name, tip) in rows {
+            let y0 = pen.y;
+            if toggle_row(pen, key, name, false, None, s[key].as_bool().unwrap_or(false), true) {
+                acts.push(Act::Core("toggle", json!(key)));
+            }
+            pen.tip_since(y0, tip);
+        }
+        pen.y += 8.0;
+        label(pen, "Version", Some(env!("CARGO_PKG_VERSION")));
     }
 
     fn pane_layout(&mut self, pen: &mut Pen, state: &Value, acts: &mut Vec<Act>, time: f64) {
         let s = &state["settings"];
         group(pen, "Card", true);
         self.slider(pen, "cardScale", "Size", s, 60.0, 200.0, 5.0, true, time);
+        let y0 = pen.y;
         self.slider(pen, "cardOpacity", "Background", s, 0.0, 100.0, 1.0, true, time);
+        pen.tip_since(y0, "How solid the card's background is.");
         pen.y += 4.0;
         label(pen, "Lyrics on the card go", None);
         chips(pen, "cardLyricsSide", &state["options"]["sides"], str_of(s, "cardLyricsSide"), acts);
         pen.y += 6.0;
+        let y0 = pen.y;
         self.slider(pen, "cardNext", "Coming lines shown", s, 0.0, 4.0, 1.0, false, time);
+        pen.tip_since(y0, "How many of the next lines the card shows after the current one.");
         group(pen, "Big lyrics", false);
         self.slider(pen, "bigSize", "Text size", s, 40.0, 250.0, 5.0, true, time);
+        let y0 = pen.y;
         self.slider(pen, "bigWidth", "Line width", s, 25.0, 98.0, 1.0, true, time);
+        pen.tip_since(y0, "How much of the screen's width a line can take before it wraps.");
         pen.y += 4.0;
         label(pen, "Place", None);
         let pos = &s["bigPos"];
@@ -760,8 +840,8 @@ impl Panel {
         if button(pen, "reset-layout", "Reset layout", r, true, true, false) {
             acts.push(Act::Core("reset-layout", Value::Null));
         }
+        pen.tip(r, "Puts everything on this tab back to the start, and the card and big lyrics back in their first place.");
         pen.y += size.y;
-        hint(pen, "Move and resize: “Arrange” (Ctrl+Alt+M).");
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -866,6 +946,7 @@ impl Panel {
             conic(pen, c, rad);
             pen.shape(Shape::circle_filled(c, rad * 0.707, pen.a(accent_c)));
         });
+        pen.tip(r.expand(4.0), "Your colour. Click it again to open the picker.");
         if clicked {
             if mode != "accent" {
                 acts.push(Act::Core("choose", json!({ "key": "colourMode", "value": "accent" })));
@@ -890,6 +971,7 @@ impl Panel {
                         pen.shape(Shape::circle_filled(ce, rad, pen.a(c)));
                         pen.shape(Shape::circle_stroke(ce, rad - 0.5, Stroke::new(1.0, rgba(0, 0, 0, 0.3 * pen.o))));
                     });
+                    pen.tip(r.expand(4.0), "A colour you picked before.");
                     if clicked {
                         acts.push(Act::Core("choose", json!({ "key": "accent", "value": to_hex(c), "commit": true })));
                         if self.target.is_some() && self.target != Some("accent") {
@@ -906,6 +988,7 @@ impl Panel {
         }
         let (r, h, clicked) = sw(pen, "sw-fade", 22.0, 6.0);
         draw_sw(pen, r, h, mode == "fade", None, &|pen, c, rad| diag(pen, c, rad, fa, fb));
+        pen.tip(r.expand(4.0), "A fade between two colours. Pick its start and end below.");
         if clicked {
             if mode != "fade" {
                 acts.push(Act::Core("choose", json!({ "key": "colourMode", "value": "fade" })));
@@ -927,6 +1010,10 @@ impl Panel {
             let col = if cover.is_some() { rgba(0, 0, 0, 0.6) } else { dim() };
             pen.text(&note, c - note.size() / 2.0, col);
         });
+        pen.tip(
+            r.expand(4.0),
+            if cover.is_some() { "Matches the song's cover art." } else { "Matches the song's cover art, once a song with a cover plays." },
+        );
         if clicked {
             acts.push(Act::Core("choose", json!({ "key": "colourMode", "value": "cover" })));
             acts.push(Act::Picker(None));
@@ -963,9 +1050,6 @@ impl Panel {
                 }
             }
             pen.y += 26.0;
-        }
-        if mode == "cover" {
-            hint(pen, if cover.is_some() { "Matches the cover art." } else { "Shows when a song with a cover plays." });
         }
 
         // The picker: saturation/brightness square, hue bar, colour code.
@@ -1047,8 +1131,16 @@ impl Panel {
         pen.y += 4.0;
         label(pen, "Timing", Some(&lead_s));
         let synced = str_of(song, "status") == "found";
-        buttons(pen, &[("earlier", "Earlier", false, true), ("later", "Later", false, true), ("sync", "Sync to now", false, synced), ("reset", "Reset", true, lead != 0.0)], acts);
-        hint(pen, "“Sync to now”: press when the line on screen is sung.");
+        buttons(
+            pen,
+            &[
+                ("earlier", "Earlier", false, true, "Shows this song's lyrics 0.25 s earlier. Ctrl+Alt+Up"),
+                ("later", "Later", false, true, "Shows this song's lyrics 0.25 s later. Ctrl+Alt+Down"),
+                ("sync", "Sync to now", false, synced, "Press the moment the line on screen is sung, and the lyrics line up with it. Ctrl+Alt+S"),
+                ("reset", "Reset", true, lead != 0.0, "Back to this song's own timing."),
+            ],
+            acts,
+        );
         pen.y += 6.0;
 
         let listening = song["listening"].as_bool().unwrap_or(false);
@@ -1069,7 +1161,13 @@ impl Panel {
         let picked = song["picked"].as_bool().unwrap_or(false);
         buttons(
             pen,
-            &[("prev", "‹ Previous", false, true), ("next", "Other lyrics ›", false, true), ("first", "Back to first", true, picked), ("search", "Search again", true, true), ("recognise", "Recognise song", true, !listening)],
+            &[
+                ("prev", "‹ Previous", false, true, "The lyrics version before this one. Ctrl+Alt+P"),
+                ("next", "Other lyrics ›", false, true, "Another version of this song's lyrics, when these are wrong or badly timed. Ctrl+Alt+O"),
+                ("first", "Back to first", true, picked, "Back to the version the app picked by itself."),
+                ("search", "Search again", true, true, "Looks this song's lyrics up online again instead of using the saved copy."),
+                ("recognise", "Recognise song", true, !listening, "Listens to about 11 s of what's playing and asks Shazam which song it is."),
+            ],
             acts,
         );
         if let Some(r) = song["recognisedAs"].as_object() {
@@ -1084,8 +1182,12 @@ impl Panel {
     /// The timing fix every song shares, under the song's own.
     fn audio_delay(&mut self, pen: &mut Pen, state: &Value, time: f64) {
         group(pen, "All songs", false);
+        let y0 = pen.y;
         self.slider(pen, "audioDelay", "Audio delay", &state["settings"], 0.0, 1000.0, 10.0, false, time);
-        hint(pen, "Bluetooth headphones play sound late, often 150 to 250 ms. Set it once and every song's lyrics wait for it.");
+        pen.tip_since(
+            y0,
+            "Bluetooth headphones play sound late, often by 150 to 250 ms. Set it once and every song's lyrics wait for it. A song's own timing adds on top.",
+        );
         pen.y += 6.0;
     }
 }
@@ -1160,7 +1262,24 @@ fn toggle_row(pen: &mut Pen, key: &str, name: &str, sub: bool, kbd: Option<&str>
     clicked
 }
 
-/// "Version x is out" with an Update button, at the top of the Show tab while there is a newer release.
+/// A tooltip under `item` (or above it, near the screen's bottom), faded in by `k`.
+fn paint_tip(ctx: &Context, screen: Rect, item: Rect, s: &str, k: f32) {
+    let g = text(ctx, s, fonts::inter(400, 12.0), TEXT, Txt { wrap: 236.0, ..Default::default() });
+    let size = g.size() + vec2(20.0, 14.0);
+    let mut pos = pos2(item.left(), item.bottom() + 6.0);
+    if pos.y + size.y > screen.bottom() - 4.0 {
+        pos.y = item.top() - 6.0 - size.y;
+    }
+    pos.x = pos.x.clamp(screen.left() + 4.0, (screen.right() - 4.0 - size.x).max(screen.left() + 4.0));
+    let r = Rect::from_min_size(pos + vec2(0.0, 4.0 * (1.0 - k)), size);
+    let mut grp = Group::default();
+    grp.shapes.push(Shape::Rect(Shadow { offset: [0, 4], blur: 14, spread: 0, color: rgba(0, 0, 0, 0.4 * k) }.as_shape(r, 8.0)));
+    grp.shapes.push(Shape::Rect(egui::epaint::RectShape::new(r, 8.0, rgba(32, 32, 39, 0.98 * k), Stroke::new(1.0, rgba(255, 255, 255, 0.1 * k)), StrokeKind::Inside)));
+    grp.texts.push(TextDraw { galley: g, pos: r.min + vec2(10.0, 7.0), color: alpha(TEXT, k), xf: TSTransform::IDENTITY, offset: Vec2::ZERO, blur: 0.0 });
+    grp.paint(&ctx.layer_painter(LayerId::new(Order::Tooltip, Id::unique("panel-tip"))).with_clip_rect(screen), draw::uv_scale(ctx));
+}
+
+/// "Version x is out" with an Update button, at the top of the App tab while there is a newer release.
 fn update_banner(pen: &mut Pen, u: &Value, acts: &mut Vec<Act>) {
     if u.is_null() {
         return;
@@ -1287,11 +1406,12 @@ fn chips(pen: &mut Pen, key: &str, list: &Value, chosen: &str, acts: &mut Vec<Ac
     pen.y = y + row_h;
 }
 
-fn buttons(pen: &mut Pen, list: &[(&'static str, &str, bool, bool)], acts: &mut Vec<Act>) {
+/// A row of buttons: the action, label, quiet look, enabled, and tooltip.
+fn buttons(pen: &mut Pen, list: &[(&'static str, &str, bool, bool, &str)], acts: &mut Vec<Act>) {
     let mut x = pen.x;
     let mut y = pen.y;
     let mut h: f32 = 0.0;
-    for (act, lbl, quiet, enabled) in list {
+    for (act, lbl, quiet, enabled, tip) in list {
         let size = button_size(pen.ctx, lbl);
         if x + size.x > pen.x + pen.w + 0.5 && x > pen.x {
             x = pen.x;
@@ -1301,6 +1421,7 @@ fn buttons(pen: &mut Pen, list: &[(&'static str, &str, bool, bool)], acts: &mut 
         if button(pen, &format!("act-{act}"), lbl, r, *quiet, *enabled, false) {
             acts.push(Act::Core(act, Value::Null));
         }
+        pen.tip(r, tip);
         x += size.x + 5.0;
         h = h.max(size.y);
     }

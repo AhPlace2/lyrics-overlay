@@ -92,7 +92,7 @@ Version 0.2.0 is a rewrite of the app in Rust. It does the same things as the El
 
 <img src="docs/media/performance.svg" width="100%" alt="Download: Electron installer 108 MB, Rust exe 13 MB. On disk: 312 MB vs 13 MB. CPU while lyrics animate: 3.5% of one core with Use GPU, 17.6% drawing on the CPU. RAM: 176 MB with Use GPU, 57 MB drawing on the CPU.">
 
-Drawing on the graphics card uses about 5× less CPU while lyrics move, but loads the graphics driver, which takes more memory. Prefer low memory? Turn off **Use GPU** under **Settings → Show**.
+Drawing on the graphics card uses about 5× less CPU while lyrics move, but loads the graphics driver, which takes more memory. Prefer low memory? Turn off **Use GPU** under **Settings → App**.
 
 ## 🎬 In action
 
@@ -162,7 +162,9 @@ Click the ⚙️ gear on the card for settings, or right-click the tray icon.
 
 Settings live in `%APPDATA%\lyrics-overlay\settings.json`, saved lyrics in `%APPDATA%\lyrics-overlay\lyrics-cache`. **Reset all** in the settings puts everything back to the defaults.
 
-Under **Settings → Show**:
+Rest the pointer on a setting to see what it does.
+
+Under **Settings → App**:
 - **Hide from screen sharing** (off): you still see the lyrics, but screenshots, recordings, OBS and calls (Zoom, Teams, Discord) don't. Leave it off if you want the lyrics on stream. Needs Windows 10 version 2004 or later.
 - **Use GPU** (on): draw with DirectX 12. Off draws on the CPU, which uses less memory but more CPU.
 - **Check for updates** (on): look for a new version on GitHub once a day.

@@ -120,7 +120,7 @@ fn check() {
     set_status(Status::Available(r.clone()));
     if !was_known {
         let mut c = core();
-        c.events.push(Ev::Toast(format!("Version {} is out. Update in Settings", r.version)));
+        c.events.push(Ev::Toast(format!("Version {} is out. Update in Settings → App", r.version)));
         drop(c);
         notify();
     }
