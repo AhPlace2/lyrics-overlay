@@ -80,7 +80,7 @@ One 13 MB file, written in Rust, drawn with DirectX 12.<br>&nbsp;
 <td valign="top">
 
 ### 🔄 Updates itself
-One click to update. No installer.<br>&nbsp;
+One click to update, installed or portable.<br>&nbsp;
 
 </td>
 </tr>
@@ -114,17 +114,18 @@ Drawing on the graphics card uses about 5× less CPU while lyrics move, but load
 
 ### Download
 
-1. Grab **`lyrics-overlay.exe`** from the [latest release](https://github.com/AhPlace2/lyrics-overlay/releases/latest).
-2. Put it in a folder you'll keep, for example `%LOCALAPPDATA%\Programs\Lyrics Overlay`. Updates replace the file in place, so the folder must be one you can write to (not *Program Files*).
-3. Double-click it. To start it from the Start menu, right-click it → **Pin to Start**.
+From the [latest release](https://github.com/AhPlace2/lyrics-overlay/releases/latest), take either:
 
-There's no installer: to remove it, quit it from the tray icon and delete the file.
+- **`Lyrics-Overlay-Setup-<version>.exe`**, the installer. It installs for you only (no admin rights), adds a Start menu entry and an optional desktop shortcut, and can be removed from Windows' installed apps.
+- **`lyrics-overlay.exe`**, the portable app. Put it in a folder you'll keep, for example `%LOCALAPPDATA%\Programs\Lyrics Overlay`, and double-click it. Updates replace the file in place, so the folder must be one you can write to (not *Program Files*). To remove it, quit it from the tray icon and delete the file.
+
+Both update themselves the same way.
 
 > [!NOTE]
 > The app isn't code-signed, so Windows shows *"Windows protected your PC"*. Click **More info → Run anyway**.
 
 > [!TIP]
-> **Coming from 0.1.7 (Electron)?** Uninstall *Lyrics Overlay* from Windows' installed apps, then start the new one. Your settings, timing fixes and saved lyrics are kept.
+> **Coming from 0.1.7 (Electron)?** The installer removes the old version for you. For the portable exe, first uninstall *Lyrics Overlay* from Windows' installed apps. Either way your settings, timing fixes and saved lyrics are kept.
 
 ### Build it yourself
 
@@ -135,7 +136,7 @@ cd native
 cargo build --release
 ```
 
-The app is `native\target\release\lyrics-overlay.exe`. For a CPU-only build without DirectX 12 (about 3 MB smaller), use `cargo build --release --no-default-features`.
+The app is `native\target\release\lyrics-overlay.exe`. To also make the installer, run `powershell -File native\installer\build.ps1` (needs [NSIS](https://nsis.sourceforge.io/)); it writes `native\target\release\Lyrics-Overlay-Setup-<version>.exe`. For a CPU-only build without DirectX 12 (about 3 MB smaller), use `cargo build --release --no-default-features`.
 
 ### The old Electron version
 
@@ -159,6 +160,7 @@ Settings live in `%APPDATA%\lyrics-overlay\settings.json`, saved lyrics in `%APP
 Under **Settings → Show**:
 - **Use GPU** (on): draw with DirectX 12. Off draws on the CPU, which uses less memory but more CPU.
 - **Check for updates** (on): look for a new version on GitHub once a day.
+- **Startup animation** (on): show the app's badge for a moment when it starts, before the card and lyrics.
 
 ## 🔧 How it works
 
@@ -193,6 +195,11 @@ native/src/
 ├── fonts.rs     the built-in fonts, plus Windows' fonts for other scripts
 ├── colour.rs    colour maths
 └── winutil.rs   small Windows calls: window styles, keys, one running copy
+
+native/installer/
+├── installer.nsi    the NSIS installer script
+├── build.ps1        builds the exe and the installer
+└── make-icon.py     draws lyrics-overlay.ico
 ```
 
 ## 🔒 Privacy
