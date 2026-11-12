@@ -45,6 +45,8 @@ fn defaults() -> Map<String, Value> {
         // Milliseconds the sound reaches you after the player reports it (Bluetooth), for every song.
         "audioDelay": 0,
         "picks": {},
+        // Songs whose lyrics were removed as wrong (song key -> true): no lyrics are looked up or shown for them.
+        "removed": {},
         "card": { "x": 24, "y": 24 },
         "cardScale": 1,
         "cardOpacity": 0.84,
@@ -189,6 +191,9 @@ pub fn core() -> MutexGuard<'static, Core> {
     CORE.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// Seconds between frames while something moves: 60 fps.
+pub const FRAME: f64 = 1.0 / 60.0;
+
 /// The UI's context, so background threads can ask for a redraw.
 pub static UI: OnceLock<egui::Context> = OnceLock::new();
 pub fn notify() {
@@ -247,7 +252,7 @@ fn load_settings() -> Map<String, Value> {
     for (k, v) in saved {
         out.insert(k, v);
     }
-    for k in ["offsets", "picks"] {
+    for k in ["offsets", "picks", "removed"] {
         if !out.get(k).map(Value::is_object).unwrap_or(false) {
             out.insert(k.into(), json!({}));
         }
@@ -399,6 +404,19 @@ impl Core {
         }
     }
 
+    /// True when the lyrics of this song were removed as wrong.
+    pub fn is_removed(&self, state: &Value) -> bool {
+        self.s("removed").get(song_key(state)).is_some()
+    }
+
+    /// Forgets that this song's lyrics were removed (in a settings patch).
+    fn unremove_patch(&self, state: &Value, patch: &mut Map<String, Value>) {
+        let mut removed = self.s("removed").as_object().cloned().unwrap_or_default();
+        if removed.shift_remove(&song_key(state)).is_some() {
+            patch.insert("removed".into(), Value::Object(removed));
+        }
+    }
+
     fn active_state(&self) -> Option<Value> {
         self.last_state.clone().filter(|s| s["active"].as_bool() == Some(true))
     }
@@ -435,6 +453,7 @@ impl Core {
                 "artist": str_of(s, "artist"),
                 "lead": num(self.song_lead()),
                 "picked": self.s("picks").get(song_key(s)).is_some(),
+                "removed": self.is_removed(s),
                 "status": status,
                 "provider": if status == "found" { json!(lyrics.map(|l| str_of(l, "provider")).filter(|p| !p.is_empty()).unwrap_or("LRCLIB")) } else { Value::Null },
                 "listening": self.recognising.as_deref() == Some(str_of(s, "key")),
@@ -623,6 +642,11 @@ pub fn look_up(state: Value, force: bool) {
         if str_of(&state, "title").is_empty() {
             return publish(&mut c, json!({ "status": "none", "lines": [] }), &state);
         }
+        // Lyrics removed as wrong stay gone, and nothing is looked up (or listened for) in their place.
+        if c.is_removed(&state) {
+            c.publish_lyrics(&key, &json!({ "status": "removed", "lines": [] }));
+            return;
+        }
         if !force {
             if let Some(v) = c.lyrics_cache.get(&key).cloned() {
                 return publish(&mut c, v, &state);
@@ -662,6 +686,9 @@ pub fn look_up(state: Value, force: bool) {
             }
         };
         let mut c = core();
+        if c.is_removed(&state) {
+            return; // removed while it was being looked up
+        }
         c.lyrics_cache.insert(key, value.clone());
         save_lyrics(&c, &state, &value);
         publish(&mut c, value, &state);
@@ -710,8 +737,16 @@ pub fn recognise_song(state: Value, manual: bool) {
             return;
         }
         tries = c.recognise_tries.get(&key).copied().unwrap_or(0);
-        if !manual && (!c.flag("recognise") || tries >= AUTO_TRIES) {
+        if !manual && (!c.flag("recognise") || tries >= AUTO_TRIES || c.is_removed(&state)) {
             return;
+        }
+        if manual {
+            // Asking for the song by ear means wanting lyrics for it again.
+            let mut patch = Map::new();
+            c.unremove_patch(&state, &mut patch);
+            if !patch.is_empty() {
+                c.update(patch);
+            }
         }
         if !manual {
             c.recognise_tries.insert(key.clone(), tries + 1);
@@ -793,6 +828,9 @@ pub fn recognise_song(state: Value, manual: bool) {
         };
         let value = found_value(&v, Some(&(m.title.clone(), m.artist.clone())));
         let mut c = core();
+        if c.is_removed(&state) {
+            return Ok(()); // removed while listening
+        }
         c.lyrics_cache.insert(key.clone(), value.clone());
         save_lyrics(&c, &state, &value);
         if c.looking_for.as_deref() == Some(key.as_str()) {
@@ -865,6 +903,7 @@ fn try_other_lyrics(step: i32) {
         let mut patch = Map::new();
         patch.insert("picks".into(), Value::Object(picks));
         patch.insert("offsets".into(), Value::Object(offsets));
+        c.unremove_patch(&state, &mut patch);
         c.update(patch);
         save_lyrics(&c, &state, &value); // after the pick is stored, so the file is marked as the chosen version
         let n = versions.iter().position(|v| str_of(v, "pick") == str_of(&next, "pick")).unwrap_or(0) + 1;
@@ -878,9 +917,61 @@ fn use_first_lyrics() {
         let Some(state) = c.active_state() else { return };
         let mut picks = c.s("picks").as_object().cloned().unwrap_or_default();
         picks.shift_remove(&song_key(&state));
-        c.update1("picks", Value::Object(picks));
+        let mut patch = Map::new();
+        patch.insert("picks".into(), Value::Object(picks));
+        c.unremove_patch(&state, &mut patch);
+        c.update(patch);
         c.lyrics_cache.remove(str_of(&state, "key"));
         c.toast("Back to the first lyrics");
+        state
+    };
+    look_up(state, true);
+}
+
+/// Wrong lyrics (a video or a site's name matched some song) are removed for this song for good: the saved copy,
+/// the picked version and the timing fix go, and the song shows no lyrics until they are brought back.
+fn remove_lyrics() {
+    let mut c = core();
+    let Some(state) = c.active_state() else { return c.toast("Nothing is playing") };
+    let sk = song_key(&state);
+    let mut removed = c.s("removed").as_object().cloned().unwrap_or_default();
+    removed.shift_remove(&sk);
+    removed.insert(sk.clone(), json!(true));
+    if removed.len() > 300 {
+        if let Some(first) = removed.keys().next().cloned() {
+            removed.shift_remove(&first);
+        } // Keep the file small; the oldest goes first.
+    }
+    let mut picks = c.s("picks").as_object().cloned().unwrap_or_default();
+    picks.shift_remove(&sk);
+    let mut offsets = c.s("offsets").as_object().cloned().unwrap_or_default();
+    offsets.shift_remove(&sk);
+    let mut patch = Map::new();
+    patch.insert("removed".into(), Value::Object(removed));
+    patch.insert("picks".into(), Value::Object(picks));
+    patch.insert("offsets".into(), Value::Object(offsets));
+    c.update(patch);
+    let key = str_of(&state, "key").to_string();
+    c.lyrics_cache.remove(&key);
+    c.versions_cache.remove(&key);
+    c.recognised.remove(&key);
+    let _ = std::fs::remove_file(saved_lyrics_file(&state));
+    c.looking_for = Some(key.clone());
+    c.publish_lyrics(&key, &json!({ "status": "removed", "lines": [] }));
+    c.toast("Lyrics removed for this song");
+}
+
+/// Undoes "Remove lyrics": looks this song's lyrics up again.
+fn restore_lyrics() {
+    let state = {
+        let mut c = core();
+        let Some(state) = c.active_state() else { return c.toast("Nothing is playing") };
+        let mut patch = Map::new();
+        c.unremove_patch(&state, &mut patch);
+        if !patch.is_empty() {
+            c.update(patch);
+        }
+        c.toast("Looking for lyrics again…");
         state
     };
     look_up(state, true);
@@ -976,9 +1067,9 @@ pub fn panel_action(name: &str, value: Value) {
             c.toast("Layout reset");
         }
         "reset-all" => {
-            // Every setting back to its default. Per-song timing fixes, lyrics picks and recent colours stay.
+            // Every setting back to its default. Per-song timing fixes, lyrics picks, removed lyrics and recent colours stay.
             let mut d = defaults();
-            for k in ["offsets", "picks", "history"] {
+            for k in ["offsets", "picks", "history", "removed"] {
                 d.shift_remove(k);
             }
             c.update(d);
@@ -1034,6 +1125,14 @@ pub fn panel_action(name: &str, value: Value) {
         "first" => {
             drop(c);
             use_first_lyrics();
+        }
+        "remove" => {
+            drop(c);
+            remove_lyrics();
+        }
+        "restore" => {
+            drop(c);
+            restore_lyrics();
         }
         "search" => {
             if let Some(s) = c.active_state() {

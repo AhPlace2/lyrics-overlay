@@ -1459,10 +1459,11 @@ impl Overlay {
                 }
             }
         }
+        let frame = crate::core::FRAME;
         if animating || self.drag.is_some() || self.big_drag.is_some() || self.size_drag.is_some() || self.seeking.is_some() {
-            wake = wake.min(1.0 / 60.0);
+            wake = wake.min(frame);
         }
-        self.wake = wake.is_finite().then_some(wake.max(1.0 / 60.0));
+        self.wake = wake.is_finite().then_some(wake.max(frame));
     }
 
     fn shown_paused(&self) -> bool {

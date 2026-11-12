@@ -612,7 +612,7 @@ impl Panel {
                 };
                 let k = ((time - since - TIP_DELAY) / 0.12).clamp(0.0, 1.0) as f32;
                 if k < 1.0 {
-                    let due = (since + TIP_DELAY - time).max(1.0 / 60.0);
+                    let due = (since + TIP_DELAY - time).max(core::FRAME);
                     self.wake = Some(self.wake.unwrap_or(f64::INFINITY).min(due));
                 }
                 if k > 0.0 {
@@ -645,7 +645,7 @@ impl Panel {
             }
         }
         if animating_open || self.tab_from.is_some() || self.dragging {
-            self.wake = Some(self.wake.unwrap_or(f64::INFINITY).min(1.0 / 60.0));
+            self.wake = Some(self.wake.unwrap_or(f64::INFINITY).min(core::FRAME));
         }
     }
 
@@ -1118,62 +1118,103 @@ impl Panel {
             self.audio_delay(pen, state, time);
             return;
         }
-        let title = str_of(song, "title");
+        // The song: its name on up to two lines, the artist under it.
+        let raw = str_of(song, "title");
+        let cleaned = crate::lyrics::clean_title(raw);
+        let title = if cleaned.is_empty() { raw.to_string() } else { cleaned };
         let artist = str_of(song, "artist");
-        let name = if artist.is_empty() { title.to_string() } else { format!("{title} · {artist}") };
-        fonts::ensure(pen.ctx, &name);
-        let g = text(pen.ctx, &name, fonts::inter(600, 13.0), TEXT, Txt { wrap: pen.w, rows: 1, ..Default::default() });
+        fonts::ensure(pen.ctx, &title);
+        fonts::ensure(pen.ctx, artist);
+        pen.y += 2.0;
+        let g = text(pen.ctx, &title, fonts::inter(600, 14.0), TEXT, Txt { wrap: pen.w, rows: 2, ..Default::default() });
         pen.text(&g, pos2(pen.x, pen.y), TEXT);
-        pen.y += g.size().y + 4.0;
+        if title != raw {
+            pen.tip(Rect::from_min_size(pos2(pen.x, pen.y), g.size()), raw);
+        }
+        pen.y += g.size().y;
+        if !artist.is_empty() {
+            let ag = text(pen.ctx, artist, fonts::inter(400, 12.0), dim(), Txt { wrap: pen.w, rows: 1, ..Default::default() });
+            pen.y += 2.0;
+            pen.text(&ag, pos2(pen.x, pen.y), dim());
+            pen.y += ag.size().y;
+        }
 
+        // Timing: this song's own fix.
         let lead = song["lead"].as_f64().unwrap_or(0.0);
         let lead_s = if lead == 0.0 { "in sync".to_string() } else { format!("{:.2} s {}", lead.abs(), if lead > 0.0 { "earlier" } else { "later" }) };
-        pen.y += 4.0;
-        label(pen, "Timing", Some(&lead_s));
+        let reset = (lead != 0.0).then_some(("reset", "Reset", "Back to this song's own timing."));
+        group_head(pen, "Timing", &lead_s, reset, acts);
         let synced = str_of(song, "status") == "found";
-        buttons(
+        button_row(
             pen,
             &[
                 ("earlier", "Earlier", false, true, "Shows this song's lyrics 0.25 s earlier. Ctrl+Alt+Up"),
-                ("later", "Later", false, true, "Shows this song's lyrics 0.25 s later. Ctrl+Alt+Down"),
                 ("sync", "Sync to now", false, synced, "Press the moment the line on screen is sung, and the lyrics line up with it. Ctrl+Alt+S"),
-                ("reset", "Reset", true, lead != 0.0, "Back to this song's own timing."),
+                ("later", "Later", false, true, "Shows this song's lyrics 0.25 s later. Ctrl+Alt+Down"),
             ],
             acts,
         );
-        pen.y += 6.0;
 
+        // Lyrics: where they come from, and what to do when they're wrong.
         let listening = song["listening"].as_bool().unwrap_or(false);
-        let provider = song["provider"].as_str();
+        let removed = song["removed"].as_bool().unwrap_or(false);
+        let status = str_of(song, "status");
         let source = if listening {
             "listening…".to_string()
-        } else if let Some(p) = provider {
+        } else if removed {
+            "removed".into()
+        } else if let Some(p) = song["provider"].as_str() {
             format!("from {p}")
-        } else if str_of(song, "status") == "loading" {
+        } else if status == "loading" {
             "looking…".into()
-        } else if str_of(song, "status") == "ad" {
+        } else if status == "ad" {
             "none during ads".into()
         } else {
             "none found".into()
         };
-        pen.y += 4.0;
-        label(pen, "Lyrics", Some(&source));
         let picked = song["picked"].as_bool().unwrap_or(false);
-        buttons(
-            pen,
-            &[
-                ("prev", "‹ Previous", false, true, "The lyrics version before this one. Ctrl+Alt+P"),
-                ("next", "Other lyrics ›", false, true, "Another version of this song's lyrics, when these are wrong or badly timed. Ctrl+Alt+O"),
-                ("first", "Back to first", true, picked, "Back to the version the app picked by itself."),
-                ("search", "Search again", true, true, "Looks this song's lyrics up online again instead of using the saved copy."),
-                ("recognise", "Recognise song", true, !listening, "Listens to about 11 s of what's playing and asks Shazam which song it is."),
-            ],
-            acts,
-        );
+        let first = (picked && !removed).then_some(("first", "Back to first", "Back to the version the app picked by itself."));
+        group_head(pen, "Lyrics", &source, first, acts);
         if let Some(r) = song["recognisedAs"].as_object() {
             let t = r.get("title").and_then(Value::as_str).unwrap_or("");
             let a = r.get("artist").and_then(Value::as_str).unwrap_or("");
+            pen.y -= 5.0;
             hint(pen, &format!("Recognised as {}", if a.is_empty() { t.to_string() } else { format!("{a} – {t}") }));
+            pen.y += 8.0;
+        }
+        let recognise = ("recognise", "Recognise song", false, !listening, "Listens to about 11 s of what's playing and asks Shazam which song it is.");
+        if removed {
+            let g = text(pen.ctx, "No lyrics are shown for this song.", fonts::inter(400, 12.0), dim(), Txt { wrap: pen.w, ..Default::default() });
+            pen.text(&g, pos2(pen.x, pen.y), dim());
+            pen.y += g.size().y + 8.0;
+            button_row(pen, &[("restore", "Bring lyrics back", false, true, "Looks this song's lyrics up again."), recognise], acts);
+        } else {
+            button_row(
+                pen,
+                &[
+                    ("prev", "‹ Previous", false, true, "The lyrics version before this one. Ctrl+Alt+P"),
+                    ("next", "Other lyrics ›", false, true, "Another version of this song's lyrics, when these are wrong or badly timed. Ctrl+Alt+O"),
+                ],
+                acts,
+            );
+            pen.y += 6.0;
+            button_row(
+                pen,
+                &[("search", "Search again", false, true, "Looks this song's lyrics up online again instead of using the saved copy."), recognise],
+                acts,
+            );
+            pen.y += 6.0;
+            button_row(
+                pen,
+                &[(
+                    "remove",
+                    "Remove lyrics for this song",
+                    true,
+                    status != "ad",
+                    "These aren't the right lyrics, or this isn't a song: show none for it from now on. You can bring them back here.",
+                )],
+                acts,
+            );
         }
         pen.y += 6.0;
         self.audio_delay(pen, state, time);
@@ -1232,6 +1273,69 @@ fn group(pen: &mut Pen, name: &str, first: bool) {
     let g = text(pen.ctx, &name.to_uppercase(), fonts::inter(800, 11.0), dim(), Txt { spacing: 0.66, ..Default::default() });
     pen.text(&g, pos2(pen.x, pen.y), dim());
     pen.y += g.size().y + 2.0;
+}
+
+/// A section heading like `group`, with its current value on the right, and an optional small action after it.
+fn group_head(pen: &mut Pen, name: &str, value: &str, action: Option<(&'static str, &str, &str)>, acts: &mut Vec<Act>) {
+    group(pen, name, false);
+    let top = pen.y - 2.0 - 15.0;
+    let mut right = pen.x + pen.w;
+    if let Some((act, lbl, tip)) = action {
+        let id = format!("act-{act}");
+        let g = line(pen.ctx, lbl, fonts::inter(600, 11.0), TEXT);
+        let r = Rect::from_min_size(pos2(right - g.size().x - 14.0, top - 4.0), g.size() + vec2(14.0, 8.0));
+        let (h, _, clicked) = pen.interact(&id, r, true);
+        let k = pen.hover_t(&id, h);
+        pen.shape(Shape::rect_filled(r, 6.0, alpha(rgba(255, 255, 255, 0.07 + 0.08 * k), pen.o)));
+        pen.text(&g, r.center() - g.size() / 2.0, TEXT);
+        pen.tip(r, tip);
+        if clicked {
+            acts.push(Act::Core(act, Value::Null));
+        }
+        right = r.left() - 8.0;
+    }
+    let vg = line(pen.ctx, value, fonts::inter(400, 12.0), TEXT);
+    pen.text(&vg, pos2(right - vg.size().x, top), TEXT);
+    pen.y += 8.0;
+}
+
+/// Buttons sharing one row in equal widths: the action, label, whether it is the red "remove" kind, enabled, and
+/// tooltip.
+fn button_row(pen: &mut Pen, list: &[(&'static str, &str, bool, bool, &str)], acts: &mut Vec<Act>) {
+    let gap = 6.0;
+    let n = list.len().max(1) as f32;
+    let w = (pen.w - gap * (n - 1.0)) / n;
+    let h = 30.0;
+    for (i, (act, lbl, danger, enabled, tip)) in list.iter().enumerate() {
+        let r = Rect::from_min_size(pos2(pen.x + i as f32 * (w + gap), pen.y), vec2(w, h));
+        let id = format!("act-{act}");
+        let clicked = if *danger {
+            let (hv, _, clicked) = pen.interact(&id, r, *enabled);
+            let k = pen.hover_t(&id, hv);
+            let o = if *enabled { 1.0 } else { 0.35 };
+            let red = Color32::from_rgb(0xff, 0x7a, 0x86);
+            pen.shape(Shape::Rect(egui::epaint::RectShape::new(
+                r,
+                7.0,
+                alpha(rgba(0xff, 0x4d, 0x5e, 0.05 + 0.12 * k), pen.o * o),
+                Stroke::new(1.0, alpha(rgba(0xff, 0x4d, 0x5e, 0.3), pen.o * o)),
+                StrokeKind::Inside,
+            )));
+            let g = line(pen.ctx, lbl, fonts::inter(600, 12.0), red);
+            let saved = pen.o;
+            pen.o *= o;
+            pen.text(&g, r.center() - g.size() / 2.0, red);
+            pen.o = saved;
+            clicked
+        } else {
+            button(pen, &id, lbl, r, false, *enabled, false)
+        };
+        if clicked {
+            acts.push(Act::Core(act, Value::Null));
+        }
+        pen.tip(r, tip);
+    }
+    pen.y += h;
 }
 
 fn toggle_row(pen: &mut Pen, key: &str, name: &str, sub: bool, kbd: Option<&str>, on: bool, enabled: bool) -> bool {
@@ -1404,28 +1508,6 @@ fn chips(pen: &mut Pen, key: &str, list: &Value, chosen: &str, acts: &mut Vec<Ac
         row_h = row_h.max(size.y);
     }
     pen.y = y + row_h;
-}
-
-/// A row of buttons: the action, label, quiet look, enabled, and tooltip.
-fn buttons(pen: &mut Pen, list: &[(&'static str, &str, bool, bool, &str)], acts: &mut Vec<Act>) {
-    let mut x = pen.x;
-    let mut y = pen.y;
-    let mut h: f32 = 0.0;
-    for (act, lbl, quiet, enabled, tip) in list {
-        let size = button_size(pen.ctx, lbl);
-        if x + size.x > pen.x + pen.w + 0.5 && x > pen.x {
-            x = pen.x;
-            y += h + 5.0;
-        }
-        let r = Rect::from_min_size(pos2(x, y), size);
-        if button(pen, &format!("act-{act}"), lbl, r, *quiet, *enabled, false) {
-            acts.push(Act::Core(act, Value::Null));
-        }
-        pen.tip(r, tip);
-        x += size.x + 5.0;
-        h = h.max(size.y);
-    }
-    pen.y = y + h;
 }
 
 fn knob(pen: &mut Pen, c: Pos2, fill: Color32) {

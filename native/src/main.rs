@@ -79,6 +79,8 @@ struct App {
     placed: Option<(i32, i32, i32, i32)>,
     last_area_check: Instant,
     next_frame: Option<Instant>,
+    /// When the last frame started: frames are kept at least 1/60 s apart, whatever asked for them.
+    last_frame: Instant,
     overlay: overlay::Overlay,
     panel: panel::Panel,
     _tray: Option<TrayIcon>,
@@ -193,6 +195,7 @@ impl App {
             placed: None,
             last_area_check: Instant::now(),
             next_frame: Some(Instant::now()),
+            last_frame: Instant::now(),
             overlay: overlay::Overlay::new(),
             panel: panel::Panel::new(),
             _tray: tray,
@@ -553,7 +556,13 @@ impl ApplicationHandler<Wake> for App {
             self.rebuild = false;
             self.open_window(el, true);
         }
+        // egui's own animations ask for a frame straight away, every frame; hold every request to the frame rate.
+        let earliest = self.last_frame + Duration::from_secs_f64(crate::core::FRAME);
+        if self.next_frame.is_some_and(|t| t < earliest) {
+            self.next_frame = Some(earliest);
+        }
         if self.next_frame.is_some_and(|t| t <= Instant::now()) {
+            self.last_frame = Instant::now();
             self.frame();
         }
         el.set_control_flow(match self.next_frame {
