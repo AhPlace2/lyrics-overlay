@@ -193,3 +193,34 @@ pub fn single_instance(on_second: impl Fn() + Send + 'static, wait: bool) -> boo
         true
     }
 }
+
+/// Windows' Open dialog for one font file. Blocks until it closes, so call it off the UI thread.
+pub fn pick_font_file() -> Option<std::path::PathBuf> {
+    use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
+    use windows::Win32::UI::Controls::Dialogs::{GetOpenFileNameW, OFN_EXPLORER, OFN_FILEMUSTEXIST, OFN_NOCHANGEDIR, OFN_PATHMUSTEXIST, OPENFILENAMEW};
+    use windows::core::{PCWSTR, PWSTR};
+    let mut file = vec![0u16; 1024];
+    let filter: Vec<u16> = "Fonts (*.ttf, *.otf)\0*.ttf;*.otf;*.ttc;*.otc\0\0".encode_utf16().collect();
+    let mut ofn = OPENFILENAMEW {
+        lStructSize: std::mem::size_of::<OPENFILENAMEW>() as u32,
+        lpstrFilter: PCWSTR(filter.as_ptr()),
+        lpstrFile: PWSTR(file.as_mut_ptr()),
+        nMaxFile: file.len() as u32,
+        lpstrTitle: w!("Add a font"),
+        Flags: OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR,
+        ..Default::default()
+    };
+    unsafe {
+        let com = CoInitializeEx(None, COINIT_APARTMENTTHREADED).is_ok();
+        let ok = GetOpenFileNameW(&mut ofn).as_bool();
+        if com {
+            CoUninitialize();
+        }
+        if !ok {
+            return None;
+        }
+    }
+    let len = file.iter().position(|c| *c == 0).unwrap_or(file.len());
+    use std::os::windows::ffi::OsStringExt;
+    Some(std::ffi::OsString::from_wide(&file[..len]).into())
+}

@@ -462,12 +462,33 @@ impl Core {
         });
         json!({
             "settings": Value::Object(self.settings.clone()),
-            "options": { "looks": opts(LOOKS), "motions": opts(MOTIONS), "fonts": opts(FONTS), "entrances": opts(ENTRANCES), "sides": opts(SIDES), "aligns": opts(ALIGNS), "peekKeys": opts(PEEK_KEYS) },
+            "options": { "looks": opts(LOOKS), "motions": opts(MOTIONS), "fonts": fonts_opts(), "entrances": opts(ENTRANCES), "sides": opts(SIDES), "aligns": opts(ALIGNS), "peekKeys": opts(PEEK_KEYS) },
             "coverColour": self.cover_colour.as_ref().map(|c| c.1.clone()),
             "song": song,
             "update": crate::update::panel_value(),
         })
     }
+}
+
+/// The built-in fonts, then the ones added to the fonts folder.
+fn fonts_opts() -> Value {
+    let mut list: Vec<Value> = FONTS.iter().map(|(v, l)| json!([v, l])).collect();
+    list.extend(crate::fonts::custom_fonts().into_iter().map(|(v, l)| json!([v, l])));
+    Value::Array(list)
+}
+
+/// Asks for a font file, copies it to the fonts folder and uses it.
+fn add_font() {
+    std::thread::spawn(|| {
+        let Some(path) = crate::winutil::pick_font_file() else { return };
+        match crate::fonts::import(&path) {
+            Ok(value) => {
+                core().update1("font", json!(value));
+                core().toast("Font added");
+            }
+            Err(msg) => core().toast(msg),
+        }
+    });
 }
 
 /// Timing fixes are saved per song, keyed the same way the overlay keys them.
@@ -1099,7 +1120,8 @@ pub fn panel_action(name: &str, value: Value) {
                     "peekKey" => PEEK_KEYS,
                     _ => &[],
                 };
-                if list.iter().any(|(k, _)| Some(*k) == v.as_str()) {
+                let added_font = key == "font" && v.as_str().is_some_and(crate::fonts::is_custom_choice);
+                if added_font || list.iter().any(|(k, _)| Some(*k) == v.as_str()) {
                     c.update1(&key, v.clone());
                 }
             }
@@ -1150,6 +1172,12 @@ pub fn panel_action(name: &str, value: Value) {
         "move" => {
             c.events.push(Ev::ClosePanel);
             c.set_editing(true);
+        }
+        "add-font" => add_font(),
+        "fonts-folder" => {
+            let folder = crate::fonts::dir();
+            let _ = std::fs::create_dir_all(&folder);
+            let _ = std::process::Command::new("explorer").arg(&folder).spawn();
         }
         "update-now" => crate::update::install(),
         "update-page" => {

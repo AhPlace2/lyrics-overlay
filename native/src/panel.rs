@@ -906,6 +906,16 @@ impl Panel {
             chips(pen, key, &o[list], str_of(s, key), acts);
             pen.y += 6.0;
         }
+        pen.y += 2.0;
+        button_row(
+            pen,
+            &[
+                ("add-font", "Add font…", false, true, "Pick a .ttf or .otf file. It's copied to the app's fonts folder and shows up as a font above."),
+                ("fonts-folder", "Fonts folder", false, true, "Font files dropped in this folder show up as fonts above. Delete one to remove it."),
+            ],
+            acts,
+        );
+        pen.y += 6.0;
 
         // Colour: swatches, the fade's ends, the picker.
         let mode = str_of(s, "colourMode").to_string();
@@ -1480,6 +1490,10 @@ fn chips(pen: &mut Pen, key: &str, list: &Value, chosen: &str, acts: &mut Vec<Ac
                 "bold" => (FontId::new(15.0, fonts::family("bold", 400, false)), 0.6, vec2(10.0, 5.5)),
                 "round" => (FontId::new(12.0, fonts::family("round", 800, false)), 0.0, vec2(10.0, 6.0)),
                 "hand" => (FontId::new(16.0, fonts::family("hand", 700, false)), 0.0, vec2(10.0, 4.0)),
+                v if v.starts_with(fonts::CUSTOM) => {
+                    fonts::ensure_custom(pen.ctx, v);
+                    (FontId::new(13.0, fonts::family(v, 600, false)), 0.0, vec2(10.0, 5.0))
+                }
                 _ => (fonts::inter(600, 12.0), 0.0, vec2(10.0, 6.0)),
             }
         } else {

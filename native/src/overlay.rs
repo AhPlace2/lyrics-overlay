@@ -911,6 +911,7 @@ impl Overlay {
             "bold" => (400, false, 0.03),
             "round" => (900, false, 0.0),
             "hand" => (700, false, 0.0),
+            f if f.starts_with(fonts::CUSTOM) => (800, false, 0.0),
             _ => (800, false, -0.01),
         };
         (FontId::new(fs, fonts::family(&f, w, italic)), ls * fs)
@@ -944,6 +945,7 @@ impl Overlay {
     pub fn ui(&mut self, ctx: &Context, screen: Rect, panel_open: bool) {
         let time = ctx.input(|i| i.time);
         self.sync(ctx, time);
+        fonts::ensure_custom(ctx, &self.font());
         if let Some((_, t0)) = &mut self.toast {
             if *t0 < 0.0 {
                 *t0 = time;

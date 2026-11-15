@@ -430,6 +430,7 @@ impl App {
     }
 
     fn ui(&mut self, ctx: &egui::Context) {
+        fonts::begin_pass();
         // What the rest of the app asked for.
         let events: Vec<Ev> = std::mem::take(&mut core().events);
         for ev in events {
