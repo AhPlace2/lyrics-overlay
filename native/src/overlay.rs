@@ -5,7 +5,7 @@
 // (the next lyric line, the clock's next second, the progress bar's next pixel) and asks to be woken then. While
 // something animates it draws at most 60 times a second, as the page's stepped CSS animations did.
 
-use crate::colour::{alpha, hex, hsl, mix, mix_oklab, rgba};
+use crate::colour::{alpha, hex, hsl, luminance, mix, mix_oklab, rgba};
 use crate::core::{self, core, num};
 use crate::draw::{self, bezier, ease, keyframes, line, text, tween, Pointer, Txt};
 use crate::fonts;
@@ -1929,12 +1929,16 @@ fn paint_intro(ctx: &Context, g: &mut Group, screen: Rect, e: f32, accent: Color
         Shape::rect_filled(pill, 18.0, rgba(14, 14, 18, 0.88 * o)),
     ];
 
-    // The badge: pops past full size and settles, with a soft glow in the accent colour.
+    // The badge: pops past full size and settles, with a soft glow in the accent colour. A light accent (white,
+    // pale yellow) would wash out: its lines turn dark like the panel's lit chips, and its glow is kept faint.
+    let light = ((luminance(accent) - 0.6) / 0.25).clamp(0.0, 1.0);
+    let lines_c = mix(Color32::from_rgb(0x11, 0x11, 0x11), light, Color32::WHITE);
+    let glow = 0.55 * (1.0 - 0.7 * light);
     let pop = keyframes(&[(0.0, [0.0]), (n(0.1), [0.0]), (n(0.38), [1.12]), (n(0.55), [1.0]), (1.0, [1.0])], e / INTRO)[0];
     if pop > 0.0 {
         let c = pos2(pill.left() + pad + badge / 2.0, pill.center().y);
         let r = Rect::from_center_size(c, vec2(badge, badge) * pop);
-        shapes.push(Shape::Rect(Shadow { offset: [0, 0], blur: 28, spread: 0, color: alpha(accent, 0.55 * o * at(0.2, 0.6)) }.as_shape(r, 14.0 * pop)));
+        shapes.push(Shape::Rect(Shadow { offset: [0, 0], blur: 28, spread: 0, color: alpha(accent, glow * o * at(0.2, 0.6)) }.as_shape(r, 14.0 * pop)));
         shapes.push(Shape::rect_filled(r, 14.0 * pop, alpha(accent, o)));
         // The tray icon's three lines (on a 32-unit square), growing from the left one after another, then
         // breathing gently like a level meter while it holds.
@@ -1946,7 +1950,7 @@ fn paint_intro(ctx: &Context, g: &mut Group, screen: Rect, e: f32, accent: Color
             let w = (x1 - 8.0) * grow * breathe;
             if w > 0.0 {
                 let bar = Rect::from_min_size(r.min + vec2(8.0 * u, y0 * u), vec2(w.max(4.0) * u, 4.0 * u));
-                shapes.push(Shape::rect_filled(bar, 2.0 * u, alpha(Color32::WHITE, o * grow.min(1.0) * 1.0)));
+                shapes.push(Shape::rect_filled(bar, 2.0 * u, alpha(lines_c, o * grow.min(1.0))));
             }
         }
     }

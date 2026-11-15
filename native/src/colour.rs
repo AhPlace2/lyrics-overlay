@@ -62,6 +62,11 @@ pub fn mix(a: Color32, p: f32, b: Color32) -> Color32 {
     Color32::from_rgba_unmultiplied(m(a.r(), b.r()), m(a.g(), b.g()), m(a.b(), b.b()), m(a.a(), b.a()))
 }
 
+/// Relative luminance, 0 (black) to 1 (white).
+pub fn luminance(c: Color32) -> f32 {
+    0.2126 * lin(c.r()) + 0.7152 * lin(c.g()) + 0.0722 * lin(c.b())
+}
+
 fn lin(c: u8) -> f32 {
     let c = c as f32 / 255.0;
     if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
