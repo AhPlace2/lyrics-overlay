@@ -41,6 +41,8 @@ fn defaults() -> Map<String, Value> {
         "bigWidth": 0.84,
         "bigSize": 1,
         "bigAlign": "center",
+        // Which monitor the overlay is on: "main", or a monitor's device name ("\\.\DISPLAY2").
+        "screen": "main",
         "offsets": {},
         // Milliseconds the sound reaches you after the player reports it (Bluetooth), for every song.
         "audioDelay": 0,
@@ -462,12 +464,20 @@ impl Core {
         });
         json!({
             "settings": Value::Object(self.settings.clone()),
-            "options": { "looks": opts(LOOKS), "motions": opts(MOTIONS), "fonts": fonts_opts(), "entrances": opts(ENTRANCES), "sides": opts(SIDES), "aligns": opts(ALIGNS), "peekKeys": opts(PEEK_KEYS) },
+            "options": { "looks": opts(LOOKS), "motions": opts(MOTIONS), "fonts": fonts_opts(), "entrances": opts(ENTRANCES), "sides": opts(SIDES), "aligns": opts(ALIGNS), "peekKeys": opts(PEEK_KEYS), "screens": screens_opts() },
             "coverColour": self.cover_colour.as_ref().map(|c| c.1.clone()),
             "song": song,
             "update": crate::update::panel_value(),
         })
     }
+}
+
+/// The monitors plugged in, as choices for the "screen" setting. The main one is "main", so the setting follows
+/// it when Windows' main monitor changes.
+fn screens_opts() -> Value {
+    let list = crate::winutil::monitors();
+    let names = crate::winutil::monitor_names(&list);
+    Value::Array(list.iter().zip(names).map(|(m, n)| json!([if m.primary { "main" } else { m.id.as_str() }, n])).collect())
 }
 
 /// The built-in fonts, then the ones added to the fonts folder.
@@ -1081,7 +1091,7 @@ pub fn panel_action(name: &str, value: Value) {
         "reset-layout" => {
             let d = defaults();
             let mut patch = Map::new();
-            for k in ["card", "cardScale", "cardOpacity", "cardLyricsSide", "cardNext", "bigPos", "bigWidth", "bigSize", "bigAlign"] {
+            for k in ["card", "cardScale", "cardOpacity", "cardLyricsSide", "cardNext", "bigPos", "bigWidth", "bigSize", "bigAlign", "screen"] {
                 patch.insert(k.into(), d[k].clone());
             }
             c.update(patch);
@@ -1121,7 +1131,8 @@ pub fn panel_action(name: &str, value: Value) {
                     _ => &[],
                 };
                 let added_font = key == "font" && v.as_str().is_some_and(crate::fonts::is_custom_choice);
-                if added_font || list.iter().any(|(k, _)| Some(*k) == v.as_str()) {
+                let screen = key == "screen" && v.as_str().is_some_and(|s| s == "main" || crate::winutil::monitors().iter().any(|m| m.id == s));
+                if added_font || screen || list.iter().any(|(k, _)| Some(*k) == v.as_str()) {
                     c.update1(&key, v.clone());
                 }
             }

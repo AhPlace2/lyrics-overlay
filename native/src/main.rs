@@ -78,6 +78,8 @@ struct App {
     hwnd: Option<isize>,
     placed: Option<(i32, i32, i32, i32)>,
     last_area_check: Instant,
+    /// A setting changed: check soon whether the overlay belongs on another monitor.
+    refit: bool,
     next_frame: Option<Instant>,
     /// When the last frame started: frames are kept at least 1/60 s apart, whatever asked for them.
     last_frame: Instant,
@@ -194,6 +196,7 @@ impl App {
             hwnd: None,
             placed: None,
             last_area_check: Instant::now(),
+            refit: false,
             next_frame: Some(Instant::now()),
             last_frame: Instant::now(),
             overlay: overlay::Overlay::new(),
@@ -207,10 +210,11 @@ impl App {
         }
     }
 
-    /// Keeps the overlay over the work area (the screen minus the taskbar), like Electron's fitToScreen.
+    /// Keeps the overlay over the work area (the screen minus the taskbar) of the monitor it is set to be on,
+    /// like Electron's fitToScreen.
     fn fit(&mut self) {
         let Some(hwnd) = self.hwnd else { return };
-        let area = winutil::work_area();
+        let area = wanted_area();
         if self.placed != Some(area) {
             self.placed = Some(area);
             winutil::place(hwnd, area.0, area.1, area.2, area.3);
@@ -270,7 +274,7 @@ impl App {
     }
 
     fn make_window(&mut self, el: &ActiveEventLoop, gpu: bool) -> Result<(), String> {
-        let (x, y, w, h) = winutil::work_area();
+        let (x, y, w, h) = wanted_area();
         let attrs = Window::default_attributes()
             .with_title("Lyrics Overlay")
             .with_decorations(false)
@@ -344,7 +348,7 @@ impl App {
     fn frame(&mut self) {
         let (Some(window), Some(hwnd)) = (self.window.clone(), self.hwnd) else { return };
         self.next_frame = None;
-        if self.placed.is_none() || self.last_area_check.elapsed() > Duration::from_secs(2) {
+        if self.placed.is_none() || std::mem::take(&mut self.refit) || self.last_area_check.elapsed() > Duration::from_secs(2) {
             self.last_area_check = Instant::now();
             self.fit();
         }
@@ -373,7 +377,7 @@ impl App {
         let t1 = Instant::now();
         let prims = ctx.tessellate(out.shapes, ppp);
         let t_tess = t1.elapsed().as_secs_f64() * 1000.0;
-        let (x, y, w, h) = self.placed.unwrap_or_else(winutil::work_area);
+        let (x, y, w, h) = self.placed.unwrap_or_else(wanted_area);
         let floor = if core().editing { 1 } else { 0 };
         #[cfg(feature = "dx12")]
         let drawn = match &mut self.gpu {
@@ -482,6 +486,12 @@ impl App {
     }
 }
 
+/// The work area of the monitor the overlay is set to be on.
+fn wanted_area() -> (i32, i32, i32, i32) {
+    let screen = core().s("screen").as_str().unwrap_or("main").to_string();
+    winutil::work_area_on(&screen)
+}
+
 impl ApplicationHandler<Wake> for App {
     fn resumed(&mut self, el: &ActiveEventLoop) {
         if self.window.is_some() {
@@ -491,8 +501,16 @@ impl ApplicationHandler<Wake> for App {
         self.open_window(el, false);
     }
 
-    fn window_event(&mut self, _el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+    fn window_event(&mut self, _el: &ActiveEventLoop, _id: WindowId, mut event: WindowEvent) {
         let Some(window) = self.window.clone() else { return };
+        // Moved onto a monitor with another display scale: Windows would resize the window by the change in scale,
+        // so ask for the size it is meant to have, and place it again once the new scale has taken.
+        if let WindowEvent::ScaleFactorChanged { inner_size_writer, .. } = &mut event {
+            if let Some((_, _, w, h)) = self.placed {
+                let _ = inner_size_writer.request_inner_size(winit::dpi::PhysicalSize::new(w as u32, h as u32));
+            }
+            self.placed = None;
+        }
         match event {
             WindowEvent::CloseRequested => return, // only Quit ends the app
             WindowEvent::RedrawRequested => {
@@ -545,6 +563,7 @@ impl ApplicationHandler<Wake> for App {
         let version = core().settings_version;
         if version != self.renderer_version {
             self.renderer_version = version;
+            self.refit = true;
             #[cfg(feature = "dx12")]
             let on_gpu = self.gpu.is_some();
             #[cfg(not(feature = "dx12"))]

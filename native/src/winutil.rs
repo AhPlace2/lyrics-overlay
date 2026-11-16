@@ -224,3 +224,109 @@ pub fn pick_font_file() -> Option<std::path::PathBuf> {
     use std::os::windows::ffi::OsStringExt;
     Some(std::ffi::OsString::from_wide(&file[..len]).into())
 }
+
+/// A monitor: its device name ("\.\DISPLAY2"), work area (minus the taskbar) in physical pixels as
+/// (x, y, width, height), and whether it is the main one.
+#[derive(Clone, Debug)]
+pub struct Monitor {
+    pub id: String,
+    pub area: (i32, i32, i32, i32),
+    pub primary: bool,
+}
+
+/// Every monitor, the main one first, then left to right.
+pub fn monitors() -> Vec<Monitor> {
+    use windows::Win32::Graphics::Gdi::{EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO, MONITORINFOEXW};
+    unsafe extern "system" fn each(m: HMONITOR, _: HDC, _: *mut RECT, list: LPARAM) -> windows::core::BOOL {
+        let list = unsafe { &mut *(list.0 as *mut Vec<Monitor>) };
+        let mut info = MONITORINFOEXW::default();
+        info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+        if unsafe { GetMonitorInfoW(m, &mut info as *mut MONITORINFOEXW as *mut MONITORINFO) }.as_bool() {
+            let w = info.monitorInfo.rcWork;
+            let len = info.szDevice.iter().position(|c| *c == 0).unwrap_or(info.szDevice.len());
+            list.push(Monitor {
+                id: String::from_utf16_lossy(&info.szDevice[..len]),
+                area: (w.left, w.top, w.right - w.left, w.bottom - w.top),
+                primary: info.monitorInfo.dwFlags & 1 != 0, // MONITORINFOF_PRIMARY
+            });
+        }
+        true.into()
+    }
+    let mut list: Vec<Monitor> = Vec::new();
+    unsafe {
+        let _ = EnumDisplayMonitors(None, None, Some(each), LPARAM(&mut list as *mut Vec<Monitor> as isize));
+    }
+    list.sort_by_key(|m| (!m.primary, m.area.0, m.area.1));
+    list
+}
+
+/// The work area of the monitor the "screen" setting names, or of the main one when it is "main" or not plugged in.
+pub fn work_area_on(screen: &str) -> (i32, i32, i32, i32) {
+    let list = monitors();
+    list.iter()
+        .find(|m| m.id == screen)
+        .or_else(|| list.iter().find(|m| m.primary))
+        .map(|m| m.area)
+        .unwrap_or_else(work_area)
+}
+
+/// Names for the monitors, as the settings show them: the main one, then where each other one sits from it
+/// ("Left", "Right", "Above", "Below"), numbered when two share a side.
+pub fn monitor_names(list: &[Monitor]) -> Vec<String> {
+    let Some(main) = list.iter().find(|m| m.primary).or(list.first()) else { return Vec::new() };
+    let centre = |m: &Monitor| (m.area.0 as f64 + m.area.2 as f64 / 2.0, m.area.1 as f64 + m.area.3 as f64 / 2.0);
+    let (mx, my) = centre(main);
+    let sides: Vec<&str> = list
+        .iter()
+        .map(|m| {
+            if m.id == main.id {
+                return "Main";
+            }
+            let (x, y) = centre(m);
+            let (dx, dy) = (x - mx, y - my);
+            if dx.abs() >= dy.abs() {
+                if dx < 0.0 { "Left" } else { "Right" }
+            } else if dy < 0.0 {
+                "Above"
+            } else {
+                "Below"
+            }
+        })
+        .collect();
+    sides
+        .iter()
+        .enumerate()
+        .map(|(i, side)| {
+            let same = sides.iter().filter(|s| s == &side).count();
+            if same > 1 {
+                format!("{side} {}", sides[..=i].iter().filter(|s| s == &side).count())
+            } else {
+                side.to_string()
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn m(id: &str, x: i32, y: i32, primary: bool) -> Monitor {
+        Monitor { id: id.into(), area: (x, y, 1920, 1040), primary }
+    }
+
+    #[test]
+    fn monitor_names_by_side() {
+        let list = [m("A", 0, 0, true), m("B", -1920, 0, false), m("C", 1920, 0, false), m("D", 3840, 0, false), m("E", 0, -1080, false)];
+        assert_eq!(monitor_names(&list), ["Main", "Left", "Right 1", "Right 2", "Above"]);
+    }
+
+    #[test]
+    fn this_machine() {
+        let list = monitors();
+        eprintln!("{:?} {:?}", list, monitor_names(&list));
+        assert!(list.iter().filter(|m| m.primary).count() == 1);
+        assert_eq!(work_area_on("main"), list[0].area);
+        assert_eq!(work_area_on("nope"), list[0].area);
+    }
+}

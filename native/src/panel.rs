@@ -797,7 +797,16 @@ impl Panel {
 
     fn pane_layout(&mut self, pen: &mut Pen, state: &Value, acts: &mut Vec<Act>, time: f64) {
         let s = &state["settings"];
-        group(pen, "Card", true);
+        // Which monitor, when there is more than one.
+        if state["options"]["screens"].as_array().is_some_and(|a| a.len() > 1) {
+            group(pen, "Screen", true);
+            let y0 = pen.y;
+            chips(pen, "screen", &state["options"]["screens"], str_of(s, "screen"), acts);
+            pen.tip_since(y0, "The monitor the lyrics and the card show on. Main follows Windows' main display.");
+            group(pen, "Card", false);
+        } else {
+            group(pen, "Card", true);
+        }
         self.slider(pen, "cardScale", "Size", s, 60.0, 200.0, 5.0, true, time);
         let y0 = pen.y;
         self.slider(pen, "cardOpacity", "Background", s, 0.0, 100.0, 1.0, true, time);
